@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity >=0.6.0 <0.7.0;
+pragma solidity 0.8.3;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
-import "@openzeppelin/contracts/math/SafeMath.sol";
-import "@openzeppelin/contracts/math/Math.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./common/Controllable.sol";
 import "./common/Constants.sol";
@@ -50,7 +49,6 @@ interface Strategy {
 ///         the underlying strategies.
 ///     - Debt ratios: Ratio in %BP of assets to invest in the underlying strategies of a vault
 contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
-    using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
     uint256 constant public MAXIMUM_STRATEGIES = 4;
@@ -248,16 +246,16 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
         if (afterAssets > beforeAssets) {
             if (gasBounty > 0) {
                 // Pass on a proportion of the profit to the user who called the harvest
-                uint256 profit = afterAssets.sub(beforeAssets);
+                uint256 profit = afterAssets - beforeAssets;
                 if (profit > baseProfit) {
-                    uint256 reward = profit.mul(gasBounty).div(10000);
-                    afterAssets = afterAssets.sub(reward);
+                    uint256 reward = (profit * gasBounty) / 10000;
+                    afterAssets = afterAssets - reward;
                     IERC20(token).safeTransfer(msg.sender, reward);
                 }
             }
-            ctrl().distributeStrategyGainLoss(afterAssets.sub(beforeAssets), 0);
+            ctrl().distributeStrategyGainLoss(afterAssets - beforeAssets, 0);
         } else if (afterAssets < beforeAssets) {
-            ctrl().distributeStrategyGainLoss(0, beforeAssets.sub(afterAssets));
+            ctrl().distributeStrategyGainLoss(0, beforeAssets - afterAssets);
         }
         harvested = true;
         entered = false;
@@ -277,7 +275,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     function totalEstimatedAssets() external view returns (uint256) {
         uint256 total = IERC20(token).balanceOf(address(this));
         for (uint256 i = 0; i < strategyLength(); i++) {
-            total = total.add(getStrategyEstimatedTotalAssets(i));
+            total += getStrategyEstimatedTotalAssets(i);
         }
         return total;
     }
@@ -337,12 +335,12 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
         uint256[] memory currentRatios = getStrategiesDebtRatio();
         bool update;
         for (uint256 i; i < _strategyLength; i++) {
-            if (currentRatios[i] < targetRatios[i] && targetRatios[i].sub(currentRatios[i]) > StrategyDebtRatioBuffer) {
+            if (currentRatios[i] < targetRatios[i] && targetRatios[i] - currentRatios[i] > StrategyDebtRatioBuffer) {
                 update = true;
                 break;
             }
 
-            if (currentRatios[i] > targetRatios[i] && currentRatios[i].sub(targetRatios[i]) > StrategyDebtRatioBuffer) {
+            if (currentRatios[i] > targetRatios[i] && currentRatios[i] - targetRatios[i] > StrategyDebtRatioBuffer) {
                 update = true;
                 break;
             }
@@ -357,11 +355,11 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     }
 
     function _totalAssets() internal view returns (uint256) {
-        return IERC20(token).balanceOf(address(this)).add(totalDebt);
+        return IERC20(token).balanceOf(address(this)) + totalDebt;
     }
     
     function _totalAssetsAvailable() internal view returns (uint256) {
-        return _totalAssets().mul(PERCENTAGE_DECIMAL_FACTOR.sub(vaultReserve)).div(PERCENTAGE_DECIMAL_FACTOR);
+        return _totalAssets() * (PERCENTAGE_DECIMAL_FACTOR - vaultReserve) / PERCENTAGE_DECIMAL_FACTOR;
     }
 
     function updateStrategyDebtRatio(address strategy, uint256 _debtRatio) external override {
@@ -412,7 +410,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
         
         emit StrategyAdded(strategy, debtRatio, minDebtPerHarvest, maxDebtPerHarvest);
     
-        debtRatio = debtRatio.add(_debtRatio);
+        debtRatio += _debtRatio;
     
         withdrawalQueue[strategyLength()] = strategy;
         _organizeWithdrawalQueue();
@@ -513,9 +511,9 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     function _creditAvailable(address strategy) internal view returns (uint256) {
         StrategyParams memory _strategyData = strategies[strategy];
         uint256 vault_totalAssets = _totalAssetsAvailable();
-        uint256 vault_debtLimit = debtRatio.mul(vault_totalAssets).div(PERCENTAGE_DECIMAL_FACTOR);
+        uint256 vault_debtLimit = debtRatio * vault_totalAssets / PERCENTAGE_DECIMAL_FACTOR;
         uint256 vault_totalDebt = totalDebt;
-        uint256 strategy_debtLimit = _strategyData.debtRatio.mul(vault_totalAssets).div(PERCENTAGE_DECIMAL_FACTOR);
+        uint256 strategy_debtLimit = _strategyData.debtRatio * vault_totalAssets / PERCENTAGE_DECIMAL_FACTOR;
         uint256 strategy_totalDebt = _strategyData.totalDebt;
         uint256 strategy_minDebtPerHarvest = _strategyData.minDebtPerHarvest;
         uint256 strategy_maxDebtPerHarvest = _strategyData.maxDebtPerHarvest;
@@ -526,9 +524,9 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
             return 0;
         }
     
-        uint256 available = strategy_debtLimit.sub(strategy_totalDebt);
+        uint256 available = strategy_debtLimit - strategy_totalDebt;
     
-        available = Math.min(available, vault_debtLimit.sub(vault_totalDebt));
+        available = Math.min(available, vault_debtLimit - vault_totalDebt);
 
         available = Math.min(available, _token.balanceOf(address(this)));
 
@@ -558,7 +556,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
         uint256 totalHarvestTime = strategy_lastReport - _strategyData.activation;
     
         if(timeSinceLastHarvest > 0 && totalHarvestTime > 0 && Strategy(strategy).isActive()) {
-            return _strategyData.totalGain.mul(timeSinceLastHarvest).div(totalHarvestTime);
+            return _strategyData.totalGain * timeSinceLastHarvest / totalHarvestTime;
         } else {
             return 0;
         }
@@ -569,23 +567,23 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
         StrategyParams memory _strategyData = strategies[strategy];
         uint256 _totalDebt = _strategyData.totalDebt;
         require(_totalDebt >= loss, '_reportLoss: totalDebt >= loss');
-        uint256 _totalLoss = _strategyData.totalLoss.add(loss);
+        uint256 _totalLoss = _strategyData.totalLoss + loss;
         strategies[strategy].totalLoss = _totalLoss;
-        _totalDebt = _totalDebt.sub(loss);
+        _totalDebt -= loss;
         strategies[strategy].totalDebt = _totalDebt;
-        totalDebt = totalDebt.sub(loss);
+        totalDebt -= loss;
         return (_totalLoss, _totalDebt); 
     }
     
     function _debtOutstanding(address strategy) internal view returns (uint256) {
         StrategyParams memory _strategyData = strategies[strategy];
-        uint256 strategy_debtLimit = _strategyData.debtRatio.mul(_totalAssetsAvailable()).div(PERCENTAGE_DECIMAL_FACTOR);
+        uint256 strategy_debtLimit = _strategyData.debtRatio * _totalAssetsAvailable() / PERCENTAGE_DECIMAL_FACTOR;
         uint256 strategy_totalDebt = _strategyData.totalDebt;
     
         if (strategy_totalDebt <= strategy_debtLimit) {
             return 0;
         } else {
-            return strategy_totalDebt.sub(strategy_debtLimit);
+            return strategy_totalDebt - strategy_debtLimit;
         }
     }
     
@@ -683,7 +681,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
                 uint256 vault_balance = _token.balanceOf(address(this));
                 
                 if (value <= vault_balance) break;
-                uint256 amountNeeded = value.sub(vault_balance);
+                uint256 amountNeeded = value - vault_balance;
     
                 StrategyParams memory _strategyData = strategies[_strategy];
                 amountNeeded = Math.min(amountNeeded, _strategyData.totalDebt);
@@ -692,15 +690,15 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
                 }
     
                 uint256 loss = Strategy(_strategy).withdraw(amountNeeded);
-                uint256 withdrawn = _token.balanceOf(address(this)).sub(vault_balance);
+                uint256 withdrawn = _token.balanceOf(address(this)) - vault_balance;
     
                 if (loss > 0) {
-                    value = value.sub(loss);
-                    totalLoss = totalLoss.add(loss);
-                    strategies[_strategy].totalLoss = _strategyData.totalLoss.add(loss);
+                    value = value - loss;
+                    totalLoss = totalLoss + loss;
+                    strategies[_strategy].totalLoss = _strategyData.totalLoss + loss;
                 }
-                strategies[_strategy].totalDebt = _strategyData.totalDebt.sub(withdrawn.add(loss));
-                totalDebt = totalDebt.sub(withdrawn.add(loss));
+                strategies[_strategy].totalDebt = _strategyData.totalDebt - withdrawn + loss;
+                totalDebt -= (withdrawn + loss);
             }
         }
         uint256 vault_balance = _token.balanceOf(address(this));
@@ -708,7 +706,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
             value = vault_balance;
         }
     
-        require(totalLoss <= maxLoss.mul(value.add(totalLoss)).div(PERCENTAGE_DECIMAL_FACTOR));
+        require(totalLoss <= maxLoss * (value + totalLoss) / PERCENTAGE_DECIMAL_FACTOR);
     
         _token.safeTransfer(recipient, value);
         emit LogWithdrawal(); // TODO fill this event
@@ -719,7 +717,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
         StrategyParams memory _strategy = strategies[msg.sender];
         require(_strategy.activation > 0, 'report: !activated');
         IERC20 _token = IERC20(token);
-        require(_token.balanceOf(msg.sender) >= gain.add(_debtPayment));
+        require(_token.balanceOf(msg.sender) >= gain + _debtPayment);
 
         if (loss > 0) {
             (uint256 _loss, uint256 _debt) = _reportLoss(msg.sender, loss);
@@ -727,32 +725,32 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
             _strategy.totalDebt = _debt;
         }
         
-        _strategy.totalGain = _strategy.totalGain.add(gain);
+        _strategy.totalGain = _strategy.totalGain + gain;
         strategies[msg.sender].totalGain = _strategy.totalGain;
     
         uint256 debt = _debtOutstanding(msg.sender);
         uint256 debtPayment = Math.min(_debtPayment, debt);
     
         if (debtPayment > 0) {
-            _strategy.totalDebt = _strategy.totalDebt.sub(debtPayment);
+            _strategy.totalDebt = _strategy.totalDebt - debtPayment;
             strategies[msg.sender].totalDebt = _strategy.totalDebt;
-            totalDebt = totalDebt.sub(debtPayment);
-            debt = debt.sub(debtPayment);
+            totalDebt -= debtPayment;
+            debt -= debtPayment;
         }
         
         uint256 credit = _creditAvailable(msg.sender);
     
         if (credit > 0) {
-            _strategy.totalDebt = _strategy.totalDebt.add(credit);
+            _strategy.totalDebt = _strategy.totalDebt + credit;
             strategies[msg.sender].totalDebt = _strategy.totalDebt;
-            totalDebt = totalDebt.add(credit);
+            totalDebt = totalDebt + credit;
         }
     
-        uint256 totalAvailable = gain.add(debtPayment);
+        uint256 totalAvailable = gain + debtPayment;
         if (totalAvailable < credit) {
-            _token.safeTransfer(msg.sender, credit.sub(totalAvailable));
+            _token.safeTransfer(msg.sender, credit - totalAvailable);
         } else if (totalAvailable > credit) {
-            _token.safeTransferFrom(msg.sender, address(this), totalAvailable.sub(credit));
+            _token.safeTransferFrom(msg.sender, address(this), totalAvailable - credit);
         }
     
         strategies[msg.sender].lastReport = block.timestamp;

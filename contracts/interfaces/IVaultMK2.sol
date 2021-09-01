@@ -1,6 +1,6 @@
 // File: contracts/interfaces/IVault.sol
 
-pragma solidity >=0.6.0 <0.7.0;
+pragma solidity 0.8.3;
 
 interface IVaultMK2 {
     function withdraw(uint256 amount) external;

@@ -314,10 +314,10 @@
     ethers "^4.0.0-beta.1"
     source-map-support "^0.5.19"
 
-"@openzeppelin/contracts@3.3.0":
-  version "3.3.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/contracts/-/contracts-3.3.0.tgz#ffdb693c5c349fc33bba420248dd3ac0a2d7c408"
-  integrity sha512-AemZEsQYtUp1WRkcmZm1div5ORfTpLquLaziCIrSagjxyKdmObxuaY1yjQ5SHFMctR8rLwp706NXTbiIRJg7pw==
+"@openzeppelin/contracts@^4.3.1":
+  version "4.3.1"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/contracts/-/contracts-4.3.1.tgz#c01f791ce6c9d3989ac1a643267501dbe336b9e3"
+  integrity sha512-QjgbPPlmDK2clK1hzjw2ROfY8KA5q+PfhDUUxZFEBCZP9fi6d5FuNoh/Uq0oCTMEKPmue69vhX2jcl0N/tFKGw==
 
 "@sentry/core@5.30.0":
   version "5.30.0"
