@@ -48,7 +48,7 @@ contract('Vault Adaptor Test', function (accounts) {
     await daiAdaptor.setController(mockController.address, { from: governance });
 
     primaryStrategy = await TestStrategy.new(daiVault.address)
-    await primaryStrategy.setKeeper(daiAdaptor.address, {from: governance})
+    await primaryStrategy.setKeeper(daiAdaptor.address, {from: governance});
     const botLimit = toBN(0)
     const topLimit = toBN(2).pow(toBN(256)).sub(toBN(1));
     await daiVault.addStrategy(
@@ -59,7 +59,7 @@ contract('Vault Adaptor Test', function (accounts) {
     )
 
     secondaryStrategy = await TestStrategy.new(daiVault.address)
-    await secondaryStrategy.setKeeper(daiAdaptor.address, {from: governance})
+    await secondaryStrategy.setKeeper(daiAdaptor.address, {from: governance});
     await daiVault.addStrategy(
       secondaryStrategy.address,
       4000,
@@ -499,7 +499,7 @@ contract('Vault Adaptor Test', function (accounts) {
       const profit2 = toBN(200).mul(daiBaseNum);
       await mockDAI.mint(secondaryStrategy.address, profit2);
       const result = await daiAdaptor.totalEstimatedAssets();
-      console.log('result: ' + result);
+      //console.log('result: ' + result);
 
       return expect(result).to.be.bignumber.equal(amount.add(profit1).add(profit2));
     })
@@ -507,7 +507,7 @@ contract('Vault Adaptor Test', function (accounts) {
 
   describe("setStrategyDebtRatio", function () {
     it('revert !owner|insurance', async () => {
-      return expect(daiAdaptor.setStrategyDebtRatio([0, 0], { from: investor2 })).to.eventually.be.rejectedWith('!setStrategyDebtRatio: !owner|insurance');
+      return expect(daiAdaptor.setStrategyDebtRatio([0, 0], { from: investor2 })).to.eventually.be.rejectedWith('!setStrategyDebtRatio: !approved|insurance');
     })
 
     it('revert ratios > 100%', async () => {
@@ -615,11 +615,11 @@ contract('Vault Adaptor Test', function (accounts) {
           const stratData = await daiAdaptor.strategies(primaryStrategy.address);
           await daiAdaptor.updateStrategyMinDebtPerHarvest(primaryStrategy.address, 1, {from: governance});
           await daiAdaptor.updateStrategyMaxDebtPerHarvest(primaryStrategy.address, 2, {from: governance});
-          console.log(stratData)
+          // console.log(stratData)
       })
 
-
-      it("Should be possible to revokeStrategy", async function () {
+      // this function has been removed, can only be called via strategy
+      it.skip("Should be possible to revokeStrategy", async function () {
           const stratData = await daiAdaptor.strategies(primaryStrategy.address);
           await expect(toBN(stratData.debtRatio)).to.be.a.bignumber.gt(toBN(0));
           await daiAdaptor.methods['revokeStrategy(address)'](primaryStrategy.address, {from: governance});

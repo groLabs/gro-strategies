@@ -24,6 +24,9 @@ module.exports = {
       blockGasLimit: 12000000
     },
     hardhat: {
+      forking: {
+        url: mainnet
+      },
       gas: 12000000,
       blockGasLimit: 0x1fffffffffffff,
       allowUnlimitedContractSize: true,
@@ -52,7 +55,7 @@ module.exports = {
   solidity: {
     compilers: [
       {
-        version: '0.6.12',
+        version: '0.8.3',
         settings: {
           optimizer: {
             enabled: true,
@@ -61,7 +64,7 @@ module.exports = {
         }
       },
       {
-        version: '0.8.3',
+        version: '0.6.11',
         settings: {
           optimizer: {
             enabled: true,
