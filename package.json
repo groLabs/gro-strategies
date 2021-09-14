@@ -22,6 +22,7 @@
     "hardhat-gas-reporter": "^1.0.4",
     "hardhat-prettier": "^0.0.1",
     "prettier": "^2.3.2",
-    "prettier-plugin-solidity": "^1.0.0-beta.17"
+    "prettier-plugin-solidity": "^1.0.0-beta.17",
+    "solidity-coverage": "^0.7.17"
   }
 }

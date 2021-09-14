@@ -2,10 +2,8 @@
 pragma solidity 0.8.3;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-//import "../interfaces/IVaultMK2.sol";
 import "../BaseStrategy.sol";
 import "../common/Constants.sol";
-import "../common/Whitelist.sol";
 import "hardhat/console.sol";
 
 library Math {
@@ -66,6 +64,21 @@ interface IHomora {
     function getBorrowETHValue(uint positionId) external view returns (uint);
 }
 
+interface IWMasterChef {
+    function balanceOf(address account, uint256 id) external view returns (uint256);
+    function decodeId(uint id) external pure returns (uint pid, uint sushiPerShare);
+}
+
+interface IMasterChef {
+    function poolInfo(uint pid) external view returns (
+        address lpToken,
+        uint allocPoint,
+        uint lastRewardBlock,
+        uint accSushiPerShare
+    );
+}
+
+// merkle distributor contract interface (uesd by AH to drop alpha tokens)
 interface IMerkleClaim {
     function claim(uint256 index, address account, uint256 amount, bytes32[] memory merkleProof) external;
 }
@@ -85,6 +98,8 @@ contract AHv2Farmer is BaseStrategy, Constants {
     // comment out if uniSwap spell is used
     address public constant sushi = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     address public constant homoraBank = address(0xba5eBAf3fc1Fcca67147050Bf80462393814E54B);
+    address public constant masterChef = address(0xc2EdaD668740f1aA35E4D8f227fB8E17dcA888Cd);
+    address public constant wMasterChef = address(0xA2caEa05fF7B98f10Ad5ddc837F15905f33FEb60);
     address public immutable spell;
 
     // strategies current position
@@ -99,18 +114,20 @@ contract AHv2Farmer is BaseStrategy, Constants {
     uint256 public constant minEthToSell = 5 * 1E17;
     // comment out if uniSwap spell is used
     uint256 public constant minGovToSell = 10 * 1E18;
+    uint256 public constant targetColateralRatio = 7950;
 
-    event OpenPosition(address vault, address spell, address router, address pool, uint256 poolId);
-    event ClosePosition(address vault, address spell, address router, address pool, uint256 poolId);
-    event AdjustPosition(address vault, address spell, address router, address pool, uint256 poolId);
-
-    event NewReservers(address vault, address spell, address router, address pool, uint256 poolId);
-    event NewIlthreshold(address vault, address spell, address router, address pool, uint256 poolId);
-    event NewMinWant(address vault, address spell, address router, address pool, uint256 poolId);
-    event NewEthToSell(address vault, address spell, address router, address pool, uint256 poolId);
-    event NewGovToSell(address vault, address spell, address router, address pool, uint256 poolId);
+    // TODO add events to functions
+    event LogOpenPosition();
+    event LogClosePosition();
+    event LogAdjustPosition();
+    event LogEthToSell();
+    event LogGovToSell();
 
     event NewFarmer(address vault, address spell, address router, address pool, uint256 poolId);
+    event NewReservers();
+    event NewIlthreshold();
+    event NewMinWant();
+
 
     struct positionData {
         uint256[] wantClose; // eth value of position when closed [want => eth]
@@ -150,10 +167,11 @@ contract AHv2Farmer is BaseStrategy, Constants {
     // strategy positions
     mapping(uint256 => positionData) positions;
 
-    // function signatures for encoding function calls
+    // function headers for generating signatures for encoding function calls
     // AHv2 homorabank uses encoded spell function calls in order to cast spells
     string sushiOpen = 'addLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256),uint256)';
     string sushiClose = 'removeLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256))';
+    // function for selling eth for want (uniswap router)
     string ethForTokens = 'swapExactETHForTokens(uint256,address[],address,uint256)';
 
     // poolId for masterchef - can be commented out for non sushi spells
@@ -186,6 +204,41 @@ contract AHv2Farmer is BaseStrategy, Constants {
         
     // Strategy will recieve eth from closing/adjusting positions, do nothing with the eth here
     receive() external payable {
+    }
+
+    /*
+     * @notice Estimate amount of sushi tokens that will be claimed if position is closed
+     */
+    function pendingSushi() public view returns (uint256) {
+        uint256 _activePosition = activePosition;
+        require(_activePosition != 0);
+        console.log('pendingSushi');
+        IWMasterChef wChef = IWMasterChef(wMasterChef);
+        uint256 _collId = positions[activePosition].collId;
+        uint256 amount = wChef.balanceOf(homoraBank, _collId);
+        console.log('_collId %s', _collId);
+        console.log('amount %s', amount);
+        (uint256 pid, uint256 stSushiPerShare) = wChef.decodeId(_collId);
+        console.log('pid %s stSushiPerShare %s', pid, stSushiPerShare);
+        (address lpToken, , , uint enSushiPerShare) = IMasterChef(masterChef).poolInfo(pid);
+        console.log('lpToken %s enSushiPerShare %s', pid, stSushiPerShare);
+        uint stSushi = (stSushiPerShare * amount - 1) / 1e12;
+        uint enSushi = enSushiPerShare * amount / 1e12;
+        console.log('stSushi %s', stSushi);
+        console.log('enSushi %s', enSushi);
+        if (enSushi > stSushi) {
+            return enSushi - stSushi;
+        }
+    }
+
+    function valueOfSushi() internal view returns (uint256) {
+        address[] memory path = new address[](2);
+        path[0] = sushi;
+        path[1] = address(want);
+
+        uint256 estimatedSushi = pendingSushi();
+        uint256[] memory sushiWantValue = uniPrice(estimatedSushi, sushi);
+        return sushiWantValue[1];
     }
 
     /*
@@ -513,15 +566,17 @@ contract AHv2Farmer is BaseStrategy, Constants {
         return amounts;
     }
 
-    /// @notice Get the total assets of this strategy.
-    ///     This method is only used to pull out debt if debt ratio has changed.
-    /// @return Total assets in want this strategy has invested into underlying protocol
+    /*
+     * @notice Get the total assets of this strategy.
+     *      This method is only used to pull out debt if debt ratio has changed.
+     * @return Total assets in want this strategy has invested into underlying protocol
+     */
     function estimatedTotalAssets() public view override returns (uint256) {
 
         // get the value of the current position supplied by this strategy (total - borrowed)
         uint256 valueOfDeposit = valueOfDeposit();
-        // uint256 currentSushi = ... calculate amount of sushi
-        return want.balanceOf(address(this)) + valueOfDeposit; // + currentSushi
+        uint256 valueOfSushi = valueOfSushi();
+        return want.balanceOf(address(this)) + valueOfDeposit + valueOfSushi;
     }
 
     /*

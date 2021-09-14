@@ -1,8 +1,7 @@
 const MockController = artifacts.require('MockController')
 const MockInsurance = artifacts.require('MockInsurance')
 const MockPnL = artifacts.require('MockPnL')
-const MockDAI = artifacts.require('MockDAI')
-const MockUSDC = artifacts.require('MockUSDC')
+const MockERC20 = artifacts.require('MockERC20')
 const TestStrategy = artifacts.require('TestStrategy')
 const AHStrategy = artifacts.require('AHv2Farmer')
 const VaultAdaptor = artifacts.require('VaultAdaptorMK2')
@@ -21,10 +20,12 @@ const AHGov = '0xb593d82d53e2c187dc49673709a6e9f806cdc835'
 const poolID = 2;
 
 const proxyHomora = '0xba5ebaf3fc1fcca67147050bf80462393814e54b'
-
+const sushiToken = '0x6b3595068778dd592e39a122f4f5a5cf09c90fe2'
+const chef = '0xc2EdaD668740f1aA35E4D8f227fB8E17dcA888Cd'
 
 const homoraABI = JSON.parse(fs.readFileSync("contracts/mocks/abi/homora.json"));
 const spellSushiABI = JSON.parse(fs.readFileSync("contracts/mocks/abi/sushiSpell.json"));
+const masterChefABI = JSON.parse(fs.readFileSync("contracts/mocks/abi/MasterChef.json"));
 
 abiDecoder.addABI(spellSushiABI);
 abiDecoder.addABI(homoraABI);
@@ -60,7 +61,7 @@ async function encode(userAmount, spell) {
 
 }
 
-contract('Vault Adaptor Test', function (accounts) {
+contract('Alpha homora test', function (accounts) {
   const admin = accounts[0]
   const governance = accounts[1]
   const investor1 = accounts[8]
@@ -75,24 +76,19 @@ contract('Vault Adaptor Test', function (accounts) {
     mockInsurance,
     mockPnL,
     dai,
+    sushi,
     daiVault,
     primaryStrategy,
     secondaryStrategy,
-    arrayStrategy,
-    arrayStrategyAddresses,
-    estimatedTotalAssets,
-    triggers,
-    percents,
-    thresholds,
-    strategiesQueue,
-    limitArray,
     homoraBank,
-    spellSushi;
+    spellSushi,
+    masterChef;
 
   beforeEach(async function () {
 
     homoraBank = await new web3.eth.Contract(homoraABI, proxyHomora);
     spellSushi = await new web3.eth.Contract(spellSushiABI, sushiSpell);
+    masterChef = await new web3.eth.Contract(masterChefABI, chef);
 
     await hre.network.provider.request(
         {
@@ -101,7 +97,8 @@ contract('Vault Adaptor Test', function (accounts) {
         }
     )
 
-    dai = await MockDAI.at(tokens.dai.address);
+    dai = await MockERC20.at(tokens.dai.address);
+    sushi = await MockERC20.at(sushiToken);
     mockController = await MockController.new();
     mockInsurance = await MockInsurance.new();
     mockPnL = await MockPnL.new();
@@ -176,7 +173,6 @@ contract('Vault Adaptor Test', function (accounts) {
   describe("withdrawToAdapter", function () {
     beforeEach(async function () {
         await setBalance('dai', daiAdaptor.address, '1000000');
-        await setBalance('dai', daiAdaptor.address, '1000000');
         console.log('ps: ' + primaryStrategy.address);
         await daiAdaptor.strategyHarvest(0, {from: governance})
         let ap = await primaryStrategy.activePosition();
@@ -200,6 +196,24 @@ contract('Vault Adaptor Test', function (accounts) {
   })
 
   describe("totalEstimatedAssets", function () {
+    it('Should be posible to withdraw from a position', async () => {
+        console.log('ps: ' + primaryStrategy.address);
+
+        await setBalance('dai', daiAdaptor.address, '1000000');
+        await daiAdaptor.strategyHarvest(0, {from: governance})
+        let ap = await primaryStrategy.activePosition();
+        console.log('active pos: ' + ap);
+        let posData = await primaryStrategy.getPosition();
+        console.log(JSON.stringify(posData));
+        console.log('ps ' + primaryStrategy.address)
+        await masterChef.methods.updatePool(2).send({from: governance});
+        console.log('sushi expected post ' + await primaryStrategy.pendingSushi())
+        for (let i = 0; i < 10; i++) {
+          await network.provider.send("evm_mine");
+        }
+        await masterChef.methods.updatePool(2).send({from: governance});
+        console.log('sushi amount post 10 blocks ' + await primaryStrategy.pendingSushi())
+    })
   })
 
   describe("setStrategyDebtRatio", function () {

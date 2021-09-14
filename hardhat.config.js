@@ -5,6 +5,7 @@ require('@nomiclabs/hardhat-ethers')
 require('@nomiclabs/hardhat-etherscan')
 require('hardhat-contract-sizer');
 require('hardhat-abi-exporter');
+require("solidity-coverage");
 require('dotenv').config();
 require('hardhat-prettier');
 
