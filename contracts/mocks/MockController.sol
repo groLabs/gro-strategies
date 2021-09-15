@@ -195,13 +195,13 @@ contract MockController is Constants, IController, IWithdrawHandler, IDepositHan
         uint256[3] memory minAmount
     ) internal {
         ILifeGuard lg = ILifeGuard(lifeGuard);
-        IBuoy buoy = IBuoy(lg.getBuoy());
+        IBuoy _buoy = IBuoy(lg.getBuoy());
         uint256 dollarAmount;
         uint256[3] memory _amounts;
         if (whale) {
             for (uint256 i = 0; i < 3; i++) {
                 uint256 lpPart = lpAmount * delta[i] / 10000;
-                uint256 amount = buoy.singleStableFromLp(lpPart, int128(uint128(i)));
+                uint256 amount = _buoy.singleStableFromLp(lpPart, int128(uint128(i)));
                 IVault vault = IVault(underlyingVaults[i]);
                 vault.withdrawByStrategyOrder(amount, msg.sender, pwrd_);
                 _amounts[i] = amount;
@@ -209,11 +209,11 @@ contract MockController is Constants, IController, IWithdrawHandler, IDepositHan
         } else {
             uint256 i = vaultOrder[0];
             IVault vault = IVault(underlyingVaults[i]);
-            uint256 amount = buoy.singleStableFromLp(lpAmount, int128(uint128(i)));
+            uint256 amount = _buoy.singleStableFromLp(lpAmount, int128(uint128(i)));
             vault.withdrawByStrategyOrder(amount, msg.sender, pwrd_);
             _amounts[i] = amount;
         }
-        dollarAmount = buoy.stableToUsd(_amounts, false);
+        dollarAmount = _buoy.stableToUsd(_amounts, false);
         IToken dt;
         if (pwrd_) {
             dt = IToken(_pwrd);
@@ -245,19 +245,19 @@ contract MockController is Constants, IController, IWithdrawHandler, IDepositHan
         uint256 minAmount
     ) internal {
         ILifeGuard lg = ILifeGuard(lifeGuard);
-        IBuoy buoy = IBuoy(lg.getBuoy());
+        IBuoy _buoy = IBuoy(lg.getBuoy());
         uint256 dollarAmount;
         if (whale) {
             for (uint256 i = 0; i < 3; i++) {
                 uint256 lpPart = lpAmount * delta[i] / 10000;
-                uint256 amount = buoy.singleStableFromLp(lpPart, int128(uint128(i)));
+                uint256 amount = _buoy.singleStableFromLp(lpPart, int128(uint128(i)));
                 IVault vault = IVault(underlyingVaults[i]);
                 vault.withdrawByStrategyOrder(amount, lifeGuard, pwrd_);
                 (dollarAmount, ) = lg.withdrawSingleByExchange(index, 1, msg.sender);
             }
         } else {
             IVault vault = IVault(underlyingVaults[vaultOrder[0]]);
-            uint256 amount = buoy.singleStableFromLp(lpAmount, int128(uint128(vaultOrder[0])));
+            uint256 amount = _buoy.singleStableFromLp(lpAmount, int128(uint128(vaultOrder[0])));
             vault.withdrawByStrategyOrder(amount, lifeGuard, pwrd_);
             (dollarAmount, ) = lg.withdrawSingleByExchange(index, 1, msg.sender);
         }
@@ -285,18 +285,18 @@ contract MockController is Constants, IController, IWithdrawHandler, IDepositHan
         _gTokenTotalAssets = _gTokenTotalAssets - dollarAmount;
     }
 
-    function _mintGToken(address gToken, uint256 amount) private {
-        IToken dt = IToken(gToken);
+    function _mintGToken(address _gToken, uint256 amount) private {
+        IToken dt = IToken(_gToken);
         dt.mint(msg.sender, dt.factor(), amount);
         _deposit(amount);
     }
 
     function _burnGToken(
-        address gToken,
+        address _gToken,
         uint256 amount,
         uint256 bonus
     ) private {
-        IToken dt = IToken(gToken);
+        IToken dt = IToken(_gToken);
         dt.burn(msg.sender, dt.factor(), amount);
         _withdraw(amount);
     }
@@ -305,24 +305,24 @@ contract MockController is Constants, IController, IWithdrawHandler, IDepositHan
         return _gTokenTotalAssets;
     }
 
-    function setGTokenTotalAssets(uint256 totalAssets) external {
-        _gTokenTotalAssets = totalAssets;
+    function setGTokenTotalAssets(uint256 _totalAssets) external {
+        _gTokenTotalAssets = _totalAssets;
     }
 
-    function increaseGTokenTotalAssets(uint256 totalAssets) external {
-        _gTokenTotalAssets = _gTokenTotalAssets + totalAssets;
+    function increaseGTokenTotalAssets(uint256 _totalAssets) external {
+        _gTokenTotalAssets = _gTokenTotalAssets + _totalAssets;
     }
 
-    function decreaseGTokenTotalAssets(uint256 totalAssets) external {
-        _gTokenTotalAssets = _gTokenTotalAssets - totalAssets;
+    function decreaseGTokenTotalAssets(uint256 _totalAssets) external {
+        _gTokenTotalAssets = _gTokenTotalAssets - _totalAssets;
     }
 
-    function mintGTokens(address gToken, uint256 amount) external {
-        _mintGToken(gToken, amount);
+    function mintGTokens(address _gToken, uint256 amount) external {
+        _mintGToken(_gToken, amount);
     }
 
-    function burnGTokens(address gToken, uint256 amount) external {
-        _burnGToken(gToken, amount, 0);
+    function burnGTokens(address _gToken, uint256 amount) external {
+        _burnGToken(_gToken, amount, 0);
     }
 
     function vaults() external view override returns (address[N_COINS] memory) {
@@ -403,8 +403,8 @@ contract MockController is Constants, IController, IWithdrawHandler, IDepositHan
     }
 
     function isValidBigFish(
-        bool pwrd,
-        bool deposit,
+        bool __pwrd,
+        bool __deposit,
         uint256 amount
     ) external view override returns (bool) {
         return whale;
@@ -435,14 +435,14 @@ contract MockController is Constants, IController, IWithdrawHandler, IDepositHan
     }
 
     function burnGToken(
-        bool pwrd,
+        bool __pwrd,
         bool all,
         address account,
         uint256 amount,
         uint256 bonus
     ) external override {
-        IPnL(pnl).decreaseGTokenLastAmount(pwrd, amount, bonus);
-        if (pwrd) {
+        IPnL(pnl).decreaseGTokenLastAmount(__pwrd, amount, bonus);
+        if (__pwrd) {
             _burnGToken(_pwrd, amount, bonus);
         } else {
             _burnGToken(gvt, amount, bonus);
@@ -457,20 +457,20 @@ contract MockController is Constants, IController, IWithdrawHandler, IDepositHan
         ILifeGuard(lifeGuard).depositStable(rebalance);
     }
 
-    function investPool(uint256 amount, uint256[3] memory delta) external {
-        ILifeGuard(lifeGuard).invest(amount, delta);
+    function investPool(uint256 amount, uint256[3] memory _delta) external {
+        ILifeGuard(lifeGuard).invest(amount, _delta);
     }
 
     function mintGToken(
-        bool pwrd,
+        bool __pwrd,
         address account,
         uint256 amount
     ) external override {}
 
-    function getUserAssets(bool pwrd, address account) external view override returns (uint256 deductUsd) {}
+    function getUserAssets(bool __pwrd, address account) external view override returns (uint256 deductUsd) {}
 
-    function distributeCurveAssets(uint256 amount, uint256[N_COINS] memory delta) external {
-        uint256[N_COINS] memory amounts = ILifeGuard(lifeGuard).distributeCurveVault(amount, delta);
+    function distributeCurveAssets(uint256 amount, uint256[N_COINS] memory _delta) external {
+        uint256[N_COINS] memory amounts = ILifeGuard(lifeGuard).distributeCurveVault(amount, _delta);
     }
 
     function addReferral(address account, address referral) external override {}

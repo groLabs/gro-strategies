@@ -182,7 +182,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
                 address router,
                 address _pool,
                 uint256 _poolId
-    ) public BaseStrategy(_vault) {
+    ) BaseStrategy(_vault) {
         profitFactor = 1000;
         debtThreshold = 1_000_000 * 1e18;
         want.safeApprove(homoraBank, type(uint256).max);
@@ -198,7 +198,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
         emit NewFarmer(_vault, _spell, router, _pool, _poolId);
     }
 
-    function name() external view override returns (string memory) {
+    function name() external pure override returns (string memory) {
         return "Ahv2 strategy";
     }
         
@@ -220,8 +220,8 @@ contract AHv2Farmer is BaseStrategy, Constants {
         console.log('amount %s', amount);
         (uint256 pid, uint256 stSushiPerShare) = wChef.decodeId(_collId);
         console.log('pid %s stSushiPerShare %s', pid, stSushiPerShare);
-        (address lpToken, , , uint enSushiPerShare) = IMasterChef(masterChef).poolInfo(pid);
-        console.log('lpToken %s enSushiPerShare %s', pid, stSushiPerShare);
+        (, , , uint256 enSushiPerShare) = IMasterChef(masterChef).poolInfo(pid);
+        console.log('enSushiPerShare %s', enSushiPerShare);
         uint stSushi = (stSushiPerShare * amount - 1) / 1e12;
         uint enSushi = enSushiPerShare * amount / 1e12;
         console.log('stSushi %s', stSushi);
@@ -229,6 +229,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
         if (enSushi > stSushi) {
             return enSushi - stSushi;
         }
+        return 0;
     }
 
     function valueOfSushi() internal view returns (uint256) {
@@ -237,8 +238,12 @@ contract AHv2Farmer is BaseStrategy, Constants {
         path[1] = address(want);
 
         uint256 estimatedSushi = pendingSushi();
-        uint256[] memory sushiWantValue = uniPrice(estimatedSushi, sushi);
-        return sushiWantValue[1];
+        if (estimatedSushi > 0 ) {
+            uint256[] memory sushiWantValue = uniPrice(estimatedSushi, sushi);
+            return sushiWantValue[1];
+        } else {
+            return 0;
+        }
     }
 
     /*
@@ -285,6 +290,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
             minAmounts[1] = int256(amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR);
             minAmounts[0] = int256(0);
 
+            // here for print statment, remove
             uint256 _want = want.balanceOf(address(this));
             uint256 _eth = address(this).balance;
             RepayAmounts memory amt = formatClose(minAmounts, collateral, amounts[1]);
@@ -336,7 +342,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
             activePosition = positionId;
         }
         
-        (address owner, address collToken, uint256 collId, uint256 collateralSize) = IHomora(homoraBank).getPositionInfo(positionId);
+        (, address collToken, uint256 collId, uint256 collateralSize) = IHomora(homoraBank).getPositionInfo(positionId);
         (address[] memory tokens, uint[] memory debts) = IHomora(homoraBank).getPositionDebts(positionId);
 
         // If no price was provided it means we adjusted the position, we need
@@ -419,18 +425,17 @@ contract AHv2Farmer is BaseStrategy, Constants {
             path[1] = address(want);
 
             uint256[] memory amounts = uniPrice(balance, weth);
-            console.log('sellEth');
-            console.logBytes(abi.encodeWithSignature(ethForTokens, minWant, weth, address(this), block.timestamp));
             // Use a call to the uniswap router contract to swap exact eth for want
             // note, minwant could be set to 0 here as it doesnt matter, this call
             // cannot prevent any frontrunning and the transaction should be executed
             // using a private host.
-            (bool success, bytes memory data) = uniSwapRouter.call{value: balance}(
+            (bool success, ) = uniSwapRouter.call{value: balance}(
                 abi.encodeWithSignature(ethForTokens, minWant, path, address(this), block.timestamp)
             );
             require(success);
             return amounts;
         } 
+        return new uint256[](2);
     }
 
     /*
@@ -447,6 +452,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
             IUni(uniSwapRouter).swapExactTokensForTokens(amounts[0], amounts[1], path, address(this), block.timestamp);
             return amounts;
         }
+        return new uint256[](2);
     }
 
     /*
@@ -483,7 +489,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
      * @notice format the open position input struct
      * @param amounts amounts for position
      */
-    function formatOpen(uint256[] memory amounts) internal view returns (Amounts memory amt) {
+    function formatOpen(uint256[] memory amounts) internal pure returns (Amounts memory amt) {
         amt.aUser = amounts[0];
         amt.bBorrow = amounts[1];
         // apply 1 BP slippage to the position
@@ -497,8 +503,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
      * @param collateral collateral to remove from position
      * @param repay amount to repay - default to max value if closing position
      */
-    function formatClose(int256[] memory expected, uint256 collateral, uint256 repay) internal view returns (RepayAmounts memory amt) {
-        console.log('formatClose: want %s weth %s', uint256(expected[1]), uint256(expected[0]));
+    function formatClose(int256[] memory expected, uint256 collateral, uint256 repay) internal pure returns (RepayAmounts memory amt) {
         repay = (repay == 0) ? REPAY : repay;
         amt.lpTake = collateral;
         amt.bRepay = repay;
@@ -547,7 +552,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
      * @param amount amount of token to swap
      * @param start token to swap out
      */
-    function uniPrice(uint256 amount, address start) internal view returns (uint256[] memory amounts) {
+    function uniPrice(uint256 amount, address start) internal view returns (uint256[] memory) {
         address[] memory path;
         if(start == weth){
             path = new address[](2);
@@ -558,7 +563,6 @@ contract AHv2Farmer is BaseStrategy, Constants {
             path[0] = start; 
             path[1] = weth; 
         }
- 
         console.log('----uniPrice');
         console.log('amount %s', amount);
         uint256[] memory amounts = IUni(uniSwapRouter).getAmountsOut(amount, path);
@@ -574,9 +578,9 @@ contract AHv2Farmer is BaseStrategy, Constants {
     function estimatedTotalAssets() public view override returns (uint256) {
 
         // get the value of the current position supplied by this strategy (total - borrowed)
-        uint256 valueOfDeposit = valueOfDeposit();
-        uint256 valueOfSushi = valueOfSushi();
-        return want.balanceOf(address(this)) + valueOfDeposit + valueOfSushi;
+        uint256 _valueOfDeposit = valueOfDeposit();
+        uint256 _valueOfSushi = valueOfSushi();
+        return want.balanceOf(address(this)) + _valueOfDeposit + _valueOfSushi;
     }
 
     /*
@@ -643,14 +647,13 @@ contract AHv2Farmer is BaseStrategy, Constants {
         console.log('-----prepareReturn');
         console.log('activePosition %s', activePosition);
         if (activePosition == 0) {
-            uint256 wantBalance = want.balanceOf(address(this));
             //no active position
-            _debtPayment = Math.min(wantBalance, _debtOutstanding); 
+            uint256 _wantBalance = want.balanceOf(address(this));
+            _debtPayment = Math.min(_wantBalance, _debtOutstanding); 
             return (_profit, _loss, _debtPayment);
         }
 
-        // get sushi amount ??
-        // sell sushi amount ??
+        sellSushi();
 
         uint256 wantBalance = want.balanceOf(address(this));
 
@@ -660,13 +663,13 @@ contract AHv2Farmer is BaseStrategy, Constants {
 
         uint256 debt = vault.strategies(address(this)).totalDebt;
 
-        //Balance - Total Debt is profit
+        // Balance - Total Debt is profit
         console.log('balance %s debt %s', balance, debt);
         if (balance > debt) {
             _profit = balance - debt;
 
             if (wantBalance < _profit) {
-                //all reserve is profit                
+                // all reserve is profit                
                 _profit = wantBalance;
             } else if (wantBalance > _profit + _debtOutstanding) {
                 _debtPayment = _debtOutstanding;
@@ -732,11 +735,11 @@ contract AHv2Farmer is BaseStrategy, Constants {
                 expected[i] = int256(positionWithSlippage);
             }
         }
+
         console.log('expected want');
         console.logInt(expected[1]);
         console.log('expected eth');
         console.logInt(expected[0]);
-
         for (uint256 i; i < 2 ; i++) {
             // if the eth return is negative, we need to reduce the the expected want by the amount
             // that will be used to repay the whole eth loan
@@ -776,7 +779,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
      * @dev This is a gas costly operation, should not be atempted unless the amount being withdrawn warrants it,
      *      this operation also resets the position to market neutral
      */
-    function _withdrawSome(uint256 _amount) internal returns (uint256) {
+    function _withdrawSome(uint256 _amount) internal {
         console.log('withdraw some %s', _amount);
         uint256[] memory repay = uniPrice(_amount, address(want));
         uint256 lpAmount = calcLpAmount(repay);
@@ -894,6 +897,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
         // lp
     }
 
+    function tendTrigger(uint256 callCost) public view override returns (bool) {}
     /*
      * @notice prepare this strategy for migrating to a new
      * @param _newStrategy address of migration target
@@ -901,6 +905,15 @@ contract AHv2Farmer is BaseStrategy, Constants {
     function prepareMigration(address _newStrategy) internal override {
         require(activePosition == 0, 'prepareMigration: active position');
         sellEth();
+        uint256 ethBalance = address(this).balance;
+        if (ethBalance > 0) {
+            (bool success, ) = _newStrategy.call{value: ethBalance}("");
+            require(success);
+        }
         sellSushi();
+        uint256 sushiBalance = address(this).balance;
+        if (sushiBalance > 0) {
+            IERC20(sushi).safeTransfer(_newStrategy, sushiBalance);
+        }
     }
 }

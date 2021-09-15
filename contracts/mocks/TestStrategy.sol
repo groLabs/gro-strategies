@@ -15,9 +15,9 @@ import "../BaseStrategy.sol";
 contract TestStrategy is BaseStrategy {
     bool public doReentrancy;
 
-    constructor(address _vault) public BaseStrategy(_vault) {}
+    constructor(address _vault) BaseStrategy(_vault) {}
 
-    function name() external override view returns (string memory) {
+    function name() external override pure returns (string memory) {
         return "TestStrategy";
     }
 
@@ -38,6 +38,7 @@ contract TestStrategy is BaseStrategy {
 
     function prepareReturn(uint256 _debtOutstanding)
         internal
+        view
         override
         returns (
             uint256 _profit,
@@ -68,7 +69,7 @@ contract TestStrategy is BaseStrategy {
         // Whatever we have "free", consider it "invested" now
     }
 
-    function liquidatePosition(uint256 _amountNeeded) internal override returns (uint256 _liquidatedAmount, uint256 _loss) {
+    function liquidatePosition(uint256 _amountNeeded) internal view override returns (uint256 _liquidatedAmount, uint256 _loss) {
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
         uint256 totalAssets = want.balanceOf(address(this));
         if (_amountNeeded > totalAssets) {
@@ -88,7 +89,7 @@ contract TestStrategy is BaseStrategy {
         // Nothing needed here because no additional tokens/tokenized positions for mock
     }
 
-    function protectedTokens() internal override view returns (address[] memory) {
+    function protectedTokens() internal override pure returns (address[] memory) {
         return new address[](0); // No additional tokens/tokenized positions for mock
     }
 
@@ -101,5 +102,10 @@ contract TestStrategy is BaseStrategy {
         } else {
             return estimateAssets - debt;
         }
+    }
+
+    function tendTrigger(uint256 callCost) public pure override returns (bool) {
+        if (callCost > 0) return false;
+        return true;
     }
 }

@@ -4,10 +4,10 @@ pragma experimental ABIEncoderV2;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "hardhat/console.sol";
 
 struct StrategyParams {
     uint256 activation;
+    bool active;
     uint256 debtRatio;
     uint256 minDebtPerHarvest;
     uint256 maxDebtPerHarvest;
@@ -381,12 +381,7 @@ abstract contract BaseStrategy {
      * @param callCost The keeper's estimated cast cost to call `tend()`.
      * @return `true` if `tend()` should be called, `false` otherwise.
      */
-    function tendTrigger(uint256 callCost) public view virtual returns (bool) {
-        // We usually don't need tend, but if there are positions that need
-        // active maintainence, overriding this function is how you would
-        // signal for that.
-        return false;
-    }
+    function tendTrigger(uint256 callCost) public view virtual returns (bool); 
 
     /**
      * @notice
@@ -489,7 +484,6 @@ abstract contract BaseStrategy {
         uint256 loss = 0;
         uint256 debtOutstanding = vault.debtOutstanding();
         uint256 debtPayment = 0;
-        console.log('----harvest');
         if (emergencyExit) {
             // Free up as much capital as possible
             uint256 totalAssets = estimatedTotalAssets();
@@ -506,12 +500,10 @@ abstract contract BaseStrategy {
             // Free up returns for Vault to pull
             (profit, loss, debtPayment) = prepareReturn(debtOutstanding);
         }
-        console.log('profit %s loss %s debtPayment %s', profit, loss, debtPayment);
         // Allow Vault to take up to the "harvested" balance of this contract,
         // which is the amount it has earned since the last time it reported to
         // the Vault.
         debtOutstanding = vault.report(profit, loss, debtPayment);
-        console.log('debtOutstanding %s', debtOutstanding);
 
         // Check if free returns are left, and re-invest them
         adjustPosition(debtOutstanding);

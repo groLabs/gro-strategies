@@ -4,7 +4,7 @@ pragma solidity 0.8.3;
 import "./MockERC20.sol";
 
 contract MockUSDC is MockERC20 {
-    constructor() public ERC20("USDC", "USDC") {
+    constructor() ERC20("USDC", "USDC") {
     }
     
     function faucet() external override {

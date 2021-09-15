@@ -4,7 +4,7 @@ pragma solidity 0.8.3;
 import "./MockERC20.sol";
 
 contract MockDAI is MockERC20 {
-    constructor() public ERC20("DAI", "DAI") {
+    constructor() ERC20("DAI", "DAI") {
     }
 
     function faucet() external override {

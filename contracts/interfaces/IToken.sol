@@ -4,7 +4,7 @@ pragma solidity 0.8.3;
 interface IToken {
     function factor() external view returns (uint256);
 
-    function factor(uint256 totalAssets) external view returns (uint256);
+    function factor(uint256 _totalAssets) external view returns (uint256);
 
     function mint(
         address account,
