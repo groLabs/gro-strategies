@@ -476,7 +476,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
      * @param _minWant minimum amount of want
      */
     function setMinWant(uint256 _minWant) external onlyAuthorized {
-                minWant = _minWant;
+        minWant = _minWant;
     }
 
     /*
@@ -567,7 +567,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
     }
 
     /*
-     * @notice Get the total assets of this strategy.
+     * @notic e Get the total assets of this strategy.
      *      This method is only used to pull out debt if debt ratio has changed.
      * @return Total assets in want this strategy has invested into underlying protocol
      */
@@ -606,7 +606,6 @@ contract AHv2Farmer is BaseStrategy, Constants {
      * @param newReserves new reserve amount
      */
     function setReserves(uint256 newReserves) external {
-        require(newReserves <= 10000, 'setReserves: !newReserves');
         reserves = newReserves;
     }
 
@@ -693,15 +692,14 @@ contract AHv2Farmer is BaseStrategy, Constants {
         console.log('open %s %s', openPrice[0], openPrice[1]);
         console.log('currentPrice %s %s', currentPrice[0], currentPrice[1]);
         uint256 difference;
-        if (openPrice[1] > currentPrice[1]) {
-            difference = (currentPrice[1] / openPrice[1]);
+        if (openPrice[1] < currentPrice[1]) {
+            difference = (currentPrice[1] * PERCENTAGE_DECIMAL_FACTOR / openPrice[1]);
         } else {
-            difference = (openPrice[1] / currentPrice[1]);
+            difference = (openPrice[1] * PERCENTAGE_DECIMAL_FACTOR / currentPrice[1]);
         }
         console.log('difference %s, ilThreshold %s', difference, ilThreshold);
         if (difference >= ilThreshold) return true;
         return false;
-
     }
 
     /*
