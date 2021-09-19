@@ -201,7 +201,7 @@ contract('Alpha homora test', function (accounts) {
 
         var debts = await homoraBank.methods.getPositionDebts(ap).call()
         console.log('debts' + JSON.stringify(debts[1]));
-        await primaryStrategy.panicClose({from: governance});
+        await primaryStrategy.panicClose(ap, {from: governance});
         console.log(JSON.stringify(posData));
     })
   })
