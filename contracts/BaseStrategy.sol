@@ -105,8 +105,6 @@ interface StrategyAPI {
 abstract contract BaseStrategy {
     using SafeERC20 for IERC20;
 
-    function name() external view virtual returns (string memory);
-
     VaultAPI public vault;
     address public rewards;
     address public keeper;
@@ -156,6 +154,8 @@ abstract contract BaseStrategy {
     constructor(address _vault) {
         _initialize(_vault, msg.sender, msg.sender);
     }
+
+    function name() external view virtual returns (string memory);
 
     /**
      * @notice

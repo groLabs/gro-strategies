@@ -63,7 +63,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     // How much of total assets should be held in the vault adaptor (%BP)
     uint256 public vaultReserve;
     // Open up the harvest function to the public
-    bool public openHarvest;
+    mapping (address => bool) public openHarvest;
     bool public entered;
     uint256 public gasBounty;
     uint256 public baseProfit;
@@ -100,14 +100,12 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     event LogStrategyRemovedFromQueue(address indexed strategy);
     event LogStrategyAddedToQueue(address indexed strategy);
     event LogStrategyStatusUpdate(address indexed strategy, bool status);
-    event LogWithdrawal(); // TODO fill this event
-    event LogDeposit(); // TODO fill this event
 
     event LogAdaptorReserve(uint256 reserve);
     event LogBaseProfit(uint256 profit);
     event LogAdaptorStrategyBuffer(uint256 buffer);
     event LogDebtRatios(uint256[] strategyRetios);
-    event LogOpenHarvestStatus(bool status);
+    event LogOpenHarvestStatus(address strategy, bool status);
     event LogGasBounty(uint256 amount);
     event LogMigrate(address parent, address child, uint256 amount);
     event LogVaultName(string name);
@@ -140,9 +138,9 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     }
 
     /// @notice Is harvest restricted or open for everyone to call
-    function setOpenHarvest(bool status) external onlyOwner {
-        openHarvest = status;
-        emit LogOpenHarvestStatus(status);
+    function setOpenHarvest(address strategy, bool status) external onlyOwner {
+        openHarvest[strategy] = status;
+        emit LogOpenHarvestStatus(strategy, status);
     }
 
     /// @notice How much gas rebate does the vault adapter provide (%BP)
@@ -243,7 +241,6 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     function deposit(uint256 amount) external override {
         require(msg.sender == ctrl().lifeGuard(), "deposit: !lifeguard");
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-        emit LogDeposit();
     }
 
     /// @notice Check if underlying strategy needs to be harvested
@@ -262,9 +259,6 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
         require(!entered, "Harvest already running");
         require(index < strategyLength(), "invalid index");
         entered = true;
-        if (!openHarvest) {
-            require(whitelist[msg.sender], "StrategyHarvest: !whitelist");
-        }
         uint256 beforeAssets = _totalAssets();
         _strategyHarvest(index);
         uint256 afterAssets = _totalAssets();
@@ -712,7 +706,6 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
         require(totalLoss <= maxLoss * (value + totalLoss) / PERCENTAGE_DECIMAL_FACTOR);
     
         _token.safeTransfer(recipient, value);
-        emit LogWithdrawal(); // TODO fill this event
         return value;
     }
     
@@ -780,7 +773,11 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     }
 
     function _strategyHarvest(uint256 index) internal {
-        Strategy(withdrawalQueue[index]).harvest();
+        address _strategy = withdrawalQueue[index];
+        if (!openHarvest[_strategy]) {
+            require(whitelist[msg.sender], "StrategyHarvest: !whitelist");
+        }
+        Strategy(_strategy).harvest();
     }
 
     function _setStrategyDebtRatio(address strategy, uint256 _debtRatio) internal {

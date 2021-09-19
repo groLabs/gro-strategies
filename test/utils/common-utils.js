@@ -962,7 +962,7 @@ const tokens = {
         dai: { address: '0x6B175474E89094C44Da98b954EedeAC495271d0F', name: "Dai", symbol: "DAI", decimals: 18, mappingSlot: '0x2'  },
         usdc: { address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', name: "USD Coin", symbol: "USDC", decimals: 6, mappingSlot: '0x9'  },
         usdt: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', name: "Tether USD", symbol: "USDT", decimals: 6, mappingSlot: '0x2'  },
-        weth: { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', name: "Wrapped ether", symbol: "ETH", decimals: 18, mappingSlot: '0x2'  },
+        weth: { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', name: "Wrapped ether", symbol: "ETH", decimals: 18, mappingSlot: '0x3'  },
 };
 
 function getBalanceOfSlotSolidity(mappingSlot, address) {
@@ -975,6 +975,14 @@ async function setBalance(tokenSymbol, to, amount) {
         const slot = getBalanceOfSlotSolidity(tokens[tokenSymbol].mappingSlot, to);
         await hre.ethers.provider.send('hardhat_setStorageAt', [tokens[tokenSymbol].address, slot, amountToMint]);
 }
+const setStorageAt = async (address, index, value) => {
+      await ethers.provider.send("hardhat_setStorageAt", [address, index, value]);
+      await ethers.provider.send("evm_mine", []); // Just mines to the next block
+};
+
+const toBytes32 = (bn) => {
+    return ethers.utils.hexlify(ethers.utils.zeroPad(bn.toHexString(), 32));
+};
 
 module.exports = {
   expectBignumberBetween,
@@ -1009,5 +1017,7 @@ module.exports = {
   investVaults,
   ZERO,
   tokens,
-  setBalance
+  setBalance,
+  setStorageAt,
+  toBytes32
 }
