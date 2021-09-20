@@ -120,15 +120,15 @@ interface IMerkleClaim {
  *   - Collateral ratio of AHv2 position
  *
  * If any of these go out of a preset threshold, the strategy will attempt to close down the position. 
- *  If the collateral factor move away from the ideal target, the strategy won't take on more debt from alpha
- *  homora when adding assets to the position.
+ *      If the collateral factor move away from the ideal target, the strategy won't take on more debt 
+ *      from alpha homora when adding assets to the position.
  */
 contract AHv2Farmer is BaseStrategy, Constants {
     using SafeERC20 for IERC20;
 
     // collateral constants - The collateral ratio is calculated by using
-	// the homoraBank to establish the eth value of the debts vs the eth value
-	// of the collateral.
+    // the homoraBank to establish the eth value of the debts vs the eth value
+    // of the collateral.
     // !!!Change these to constant values - these are left as non constant for testing purposes!!!
     int256 public targetCollateralRatio = 7950; // ideal collateral ratio
     int256 public collateralThreshold = 8900; // max collateral raio
