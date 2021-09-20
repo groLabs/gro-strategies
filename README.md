@@ -1,6 +1,8 @@
 # gro-strategies
 Strategies for gro-protocol
 
+[Project overview](https://docs.google.com/spreadsheets/d/1hXfzm3FTHXznesnYs-yb2gjZjfrQQKcn_lAkGmb2T_4/edit?usp=sharing)
+
 ## Prepare local environment
 
 1. install `nodejs`, refer to [nodejs](https://nodejs.org/en/)
