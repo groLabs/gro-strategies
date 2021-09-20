@@ -9,10 +9,7 @@ require("solidity-coverage");
 require('dotenv').config();
 require('hardhat-prettier');
 
-kovan = process.env['kovan']
 mainnet = process.env['mainnet']
-ropsten = process.env['ropsten']
-goerli = process.env['goerli']
 
 /**
  * @type import('hardhat/config').HardhatUserConfig
