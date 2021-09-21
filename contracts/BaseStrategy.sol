@@ -198,7 +198,6 @@ abstract contract BaseStrategy {
      *  time between jobs to wait. (see `harvestTrigger()`
      *  for more details.)
      *
-     *  This may only be called by owner or the strategist.
      * @param _delay The minimum number of seconds to wait between harvests.
      */
     function setMinReportDelay(uint256 _delay) external onlyAuthorized {
@@ -215,7 +214,6 @@ abstract contract BaseStrategy {
      *  time between jobs to wait. (see `harvestTrigger()`
      *  for more details.)
      *
-     *  This may only be called by owner or the strategist.
      * @param _delay The maximum number of seconds to wait between harvests.
      */
     function setMaxReportDelay(uint256 _delay) external onlyAuthorized {
@@ -229,7 +227,6 @@ abstract contract BaseStrategy {
      *  if it's worthwhile to harvest, given gas costs. (See `harvestTrigger()`
      *  for more details.)
      *
-     *  This may only be called by owner or the strategist.
      * @param _profitFactor A ratio to multiply anticipated
      * `harvest()` gas cost against.
      */
@@ -247,7 +244,6 @@ abstract contract BaseStrategy {
      *  will subsequently report the loss to the Vault for tracking. (See
      *  `harvestTrigger()` for more details.)
      *
-     *  This may only be called by owner or the strategist.
      * @param _debtThreshold How big of a loss this Strategy may carry without
      * being required to report to the Vault.
      */
@@ -390,7 +386,6 @@ abstract contract BaseStrategy {
      *
      *  See comments on `adjustPosition()`.
      *
-     *  This may only be called by owner, the strategist, or the keeper.
      */
     function tend() external onlyAuthorized {
         // Don't take profits with this call, but adjust for better gains
@@ -413,8 +408,8 @@ abstract contract BaseStrategy {
      *  This call and `tendTrigger` should never return `true` at the
      *  same time.
      *
-     *  See `min/maxReportDelay`, `profitFactor`, `debtThreshold` to adjust the
-     *  strategist-controlled parameters that will influence whether this call
+     *  See `min/maxReportDelay`, `profitFactor`, `debtThreshold`
+     *  -controlled parameters that will influence whether this call
      *  returns `true` or not. These parameters will be used in conjunction
      *  with the parameters reported to the Vault (see `params`) to determine
      *  if calling `harvest()` is merited.
@@ -469,7 +464,6 @@ abstract contract BaseStrategy {
      *  In the rare case the Strategy is in emergency shutdown, this will exit
      *  the Strategy's position.
      *
-     *  This may only be called by owner, the strategist, or the keeper.
      * @dev
      *  When `harvest()` is called, the Strategy reports to the Vault (via
      *  `vault.report()`), so in some cases `harvest()` must be called in order
@@ -546,7 +540,7 @@ abstract contract BaseStrategy {
      * @param _newStrategy The Strategy to migrate to.
      */
     function migrate(address _newStrategy) external {
-        require(msg.sender == address(vault) || msg.sender == owner());
+        require(msg.sender == address(vault));
         require(BaseStrategy(_newStrategy).vault() == vault);
         prepareMigration(_newStrategy);
         want.safeTransfer(_newStrategy, want.balanceOf(address(this)));
@@ -558,7 +552,6 @@ abstract contract BaseStrategy {
      *  position upon the next harvest, depositing all funds into the Vault as
      *  quickly as is reasonable given on-chain conditions.
      *
-     *  This may only be called by owner or the strategist.
      * @dev
      *  See `vault.setEmergencyShutdown()` and `harvest()` for further details.
      */
