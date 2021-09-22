@@ -407,12 +407,12 @@ contract AHv2Farmer is BaseStrategy, Constants {
     function openPosition(uint256 amount) internal onlyAuthorized {
         uint256[] memory amounts = uniPrice(amount, address(want));
         Amounts memory amt = formatOpen(amounts);
-        IHomora(homoraBank).execute(
+        uint256 positionId = IHomora(homoraBank).execute(
                 0,
                 spell,
                 abi.encodeWithSignature(sushiOpen, address(want), weth, amt, poolId)
         );
-        createPositionData(IHomora(homoraBank).nextPositionId() - 1, amounts);
+        createPositionData(positionId, amounts);
     }
     
     /*
