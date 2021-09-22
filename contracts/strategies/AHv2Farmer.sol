@@ -404,7 +404,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
      * @notice Open a new AHv2 position with market neutral leverage
      * @param amount amount of want to provide to prosition
      */
-    function openPosition(uint256 amount) internal onlyAuthorized {
+    function openPosition(uint256 amount) internal {
         uint256[] memory amounts = uniPrice(amount, address(want));
         Amounts memory amt = formatOpen(amounts);
         uint256 positionId = IHomora(homoraBank).execute(
