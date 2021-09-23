@@ -360,8 +360,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     /// @param _debtRatio new debt ratio
     function updateStrategyDebtRatio(address strategy, uint256 _debtRatio) external override {
         // If a strategy isnt the source of the call
-        if (strategies[msg.sender].activation == 0) {
-            require(strategies[strategy].activation > 0, 'updateStrategyDebtRatio: !activated');
+        if (!strategies[msg.sender].active) {
             require(msg.sender == owner() || whitelist[msg.sender], 'updateStrategyDebtRatio: !whitelist');
         }
         debtRatio -= strategies[strategy].debtRatio;
@@ -403,7 +402,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     function addStrategy(address strategy, uint256 _debtRatio, uint256 minDebtPerHarvest, uint256 maxDebtPerHarvest) external onlyOwner {
         require(withdrawalQueue[MAXIMUM_STRATEGIES - 1] == ZERO_ADDRESS, 'addStrategy: > MAXIMUM_STRATEGIES');
         require(strategy != ZERO_ADDRESS, 'addStrategy: address(0x)');
-        require(strategies[strategy].activation == 0, 'addStrategy: !activated');
+        require(!strategies[strategy].active, 'addStrategy: !activated');
         require(address(this) == Strategy(strategy).vault(), 'addStrategy: !vault');
         require(token == Strategy(strategy).want(), 'addStrategy: !want');
         require(debtRatio + _debtRatio <= PERCENTAGE_DECIMAL_FACTOR, 'addStrategy: debtRatio > 100%');
@@ -486,6 +485,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
 
     /// @notice Remove strategy from vault adapter, called by strategy on emergencyExit
     function revokeStrategy() external {
+        require(strategies[msg.sender].active, 'revokeStrategy: strategy not active');
         _revokeStrategy(msg.sender);
     }
     
@@ -815,6 +815,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     function _revokeStrategy(address strategy) internal {
         debtRatio -= strategies[strategy].debtRatio;
         strategies[strategy].debtRatio = 0;
+        strategies[strategy].active = false;
         emit LogStrategyRevoked(strategy);
     }
     
