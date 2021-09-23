@@ -973,7 +973,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
 
     function tendTrigger(uint256 callCost) public view override returns (bool) {
         if (activePosition == 0) {
-            if (want.balanceOf(address(this)) >= minWant) true;
+            if (want.balanceOf(address(this)) >= minWant) return true;
         }
         if (volatilityCheck()) return true;
         if (getCollateralFactor(activePosition) > collateralThreshold) return true;
