@@ -126,9 +126,12 @@ interface IMerkleClaim {
  *  If the collateral factor move away from the ideal target, the strategy won't take on more debt from alpha
  *  homora when adding assets to the position.
  */
-contract AHv2Farmer is BaseStrategy, Constants {
+contract AHv2Farmer is BaseStrategy {
     using SafeERC20 for IERC20;
 
+    // Base constants
+    uint256 public constant DEFAULT_DECIMALS_FACTOR = uint256(10)**18;
+    uint256 public constant PERCENTAGE_DECIMAL_FACTOR = uint256(10)**4;
     // collateral constants - The collateral ratio is calculated by using
     // the homoraBank to establish the eth value of the debts vs the eth value
     // of the collateral.
@@ -594,11 +597,11 @@ contract AHv2Farmer is BaseStrategy, Constants {
     function calcLpPosition(uint256 collateral) internal view returns (uint256[] memory) {
         (uint112 reserve0, uint112 reserve1, ) = IUniPool(pool).getReserves();
         uint256 poolBalance = IUniPool(pool).totalSupply();
-        uint256 share = collateral * PERCENTAGE_DECIMAL_FACTOR / poolBalance;
+        uint256 share = collateral * DEFAULT_DECIMALS_FACTOR / poolBalance;
         uint256[] memory lpPosition = new uint256[](2);
 
-        lpPosition[1] = uint256(reserve0) * share / PERCENTAGE_DECIMAL_FACTOR;
-        lpPosition[0] = uint256(reserve1) * share / PERCENTAGE_DECIMAL_FACTOR;
+        lpPosition[1] = uint256(reserve0) * share / DEFAULT_DECIMALS_FACTOR;
+        lpPosition[0] = uint256(reserve1) * share / DEFAULT_DECIMALS_FACTOR;
         return lpPosition;
     }
 
@@ -847,12 +850,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
 
         // cannot repay the entire debt
         if(debtOutstanding > assets + _balance) {
-            // Sell all of our other assets if we hold any
-            _balance = want.balanceOf(address(this));
-            // if we still cant repay we report a loss
-            if(debtOutstanding > assets + _balance) {
-                _loss = debtOutstanding - (assets + _balance);
-            }
+            _loss = debtOutstanding - (assets + _balance);
         }
 
         // if the asset value of our position is less than what we need to withdraw, close the position
