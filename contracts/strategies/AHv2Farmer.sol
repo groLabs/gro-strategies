@@ -849,11 +849,15 @@ contract AHv2Farmer is BaseStrategy {
         uint256 debtOutstanding = vault.debtOutstanding();
 
         // cannot repay the entire debt
-        if(debtOutstanding > assets + _balance) {
-            _loss = debtOutstanding - (assets + _balance);
+        if(debtOutstanding > assets) {
+            _loss = debtOutstanding - (assets);
         }
 
         // if the asset value of our position is less than what we need to withdraw, close the position
+        int256 changeFactor = getCollateralFactor(_positionId) - targetCollateralRatio;
+        if (volatilityCheck()) {
+            require(changeFactor < 50 && changeFactor > -50, 'liquidatePosition: collateral vs. volatility mismatch');
+        }
         if (assets < _amountNeeded) {
             if (activePosition != 0) {
                 closePosition(_positionId, false);
@@ -865,7 +869,6 @@ contract AHv2Farmer is BaseStrategy {
             // do we have enough assets in strategy to repay?
             if (_balance < _amountNeeded) {
                 uint256 remainder;
-                int256 changeFactor = getCollateralFactor(_positionId) - targetCollateralRatio;
                 if (changeFactor > 500) {
                     closePosition(_positionId, false);
                     _amountFreed = Math.min(_amountNeeded, want.balanceOf(address(this)));
