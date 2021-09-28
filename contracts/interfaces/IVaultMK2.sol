@@ -1,6 +1,6 @@
-// File: contracts/interfaces/IVault.sol
+// SPDX-License-Identifier: AGPLv3
 
-pragma solidity >=0.6.0 <0.7.0;
+pragma solidity 0.8.3;
 
 interface IVaultMK2 {
     function withdraw(uint256 amount) external;
@@ -11,13 +11,13 @@ interface IVaultMK2 {
         uint256 amount,
         address recipient,
         bool reversed
-    ) external;
+    ) external returns (uint256);
 
     function withdrawByStrategyIndex(
         uint256 amount,
         address recipient,
         uint256 strategyIndex
-    ) external;
+    ) external returns (uint256);
 
     function deposit(uint256 amount) external;
 

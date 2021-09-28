@@ -1,17 +1,16 @@
 require('@nomiclabs/hardhat-truffle5')
+require('@nomiclabs/hardhat-vyper')
 require('@nomiclabs/hardhat-web3')
 require('hardhat-gas-reporter')
 require('@nomiclabs/hardhat-ethers')
 require('@nomiclabs/hardhat-etherscan')
 require('hardhat-contract-sizer');
 require('hardhat-abi-exporter');
+require("solidity-coverage");
 require('dotenv').config();
 require('hardhat-prettier');
 
-kovan = process.env['kovan']
 mainnet = process.env['mainnet']
-ropsten = process.env['ropsten']
-goerli = process.env['goerli']
 
 /**
  * @type import('hardhat/config').HardhatUserConfig
@@ -24,6 +23,9 @@ module.exports = {
       blockGasLimit: 12000000
     },
     hardhat: {
+      forking: {
+        url: mainnet
+      },
       gas: 12000000,
       blockGasLimit: 0x1fffffffffffff,
       allowUnlimitedContractSize: true,
@@ -52,7 +54,16 @@ module.exports = {
   solidity: {
     compilers: [
       {
-        version: '0.6.12',
+        version: '0.8.3',
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        }
+      },
+      {
+        version: '0.6.11',
         settings: {
           optimizer: {
             enabled: true,
@@ -61,5 +72,8 @@ module.exports = {
         }
       }
     ]
-  }
+  },
+  vyper: {
+    version: '0.2.8',
+  },
 }

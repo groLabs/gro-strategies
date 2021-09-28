@@ -1,51 +1,34 @@
-const { BN, toBN, toWei } = require('web3-utils');
-const { expect, asyncForEach } = require('../utils/common-utils')
-const { advanceSpecialBlock } = require('../utils/contract-web3-utils');
-const fs = require('fs');
-const { newController } = require('../utils/factory/controller')
+require('dotenv').config();
+const MockController = artifacts.require('MockController')
+const MockInsurance = artifacts.require('MockInsurance')
+const MockPnL = artifacts.require('MockPnL')
+const MockERC20 = artifacts.require('MockERC20')
+const TestStrategy = artifacts.require('TestStrategy')
 const xPool = artifacts.require('StableYearnXPool')
+const VaultAdaptor = artifacts.require('VaultAdaptorMK2')
 
-const {
-  stableCoinsRatios,
-  showRebalanceTriggerResult,
-  getSystemAssetsInfo,
-  getUserAssets,
-  printSystemAsset,
-  printUserAssets,
-} = require('../utils/common-utils')
-const { mintToken } = require('../utils/token-utils')
+const { BN, toBN, toWei } = require('web3-utils');
+const { advanceSpecialBlock } = require('./utils/contract-web3-utils');
+const { constants } = require('./utils/constants');
+const { expect, asyncForEach, ZERO, tokens, setBalance, setStorageAt, toBytes32 } = require('./utils/common-utils');
 
+const fs = require('fs');
 const mainnet = true;
 
-const daiPercent = stableCoinsRatios.daiRatio,
-  usdcPercent = stableCoinsRatios.usdcRatio,
-  usdtPercent = stableCoinsRatios.usdtRatio,
-  percentFactor = toBN(10000),
-  gvtPrice = toBN(300),
-  baseNum = toBN(1e18),
-  gvtInitBase = baseNum.div(gvtPrice),
-  zero = toBN(0)
+const percentFactor = toBN(10000),
+  baseNum = toBN(1e18);
+
 let controller,
   insurance,
   exposure,
   allocation,
   pnl,
-  gvt,
-  pwrd,
-  daiBaseNum,
-  usdcBaseNum,
-  usdtBaseNum,
-  lpBaseNum,
   mockDAI,
   mockUSDC,
   mockUSDT,
-  DAIVaultAdaptor,
-  USDCVaultAdaptor,
-  USDTVaultAdaptor,
-  mockCurveVault,
-  mockCurveStrategy,
+  curveVaultAdapter,
+  primaryStrategy,
   pool,
-  lifeguard,
   curve,
   vault,
   yVault,
@@ -76,113 +59,39 @@ contract('Curve metapool strategy', async accounts => {
     compound = accounts[5],
     reward = accounts[9]
   beforeEach(async function () {
-    bank = '0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7';
-    await network.provider.request({
-      method: "hardhat_impersonateAccount",
-      params: [bank],
 
-    });
 
-    controller = await newController(mainnet)
-      ;[mockDAI, mockUSDC, mockUSDT] = controller.underlyingTokens
-    gvt = controller.gvt
-    pwrd = controller.pwrd
-    pnl = controller.pnl
-    lifeguard = controller.lifeguard
-    lpt = lifeguard.lpt
-    insurance = controller.insurance
-    exposure = insurance.exposure
-    allocation = insurance.allocation
-      ;[DAIVaultAdaptor, USDCVaultAdaptor, USDTVaultAdaptor, CurveVaultAdaptor] = controller.vaults
-      ;[mockDAIVault, mockUSDCVault, mockUSDTVault, mockCurveVault] = [
-        DAIVaultAdaptor.vault,
-        USDCVaultAdaptor.vault,
-        USDTVaultAdaptor.vault,
-        CurveVaultAdaptor.vault,
-      ]
-      ;[
-        mockDAIHarvestStrategy,
-        mockDAIGenericStrategy,
-      ] = DAIVaultAdaptor.strategies
-      ;[
-        mockUSDCHarvestStrategy,
-        mockUSDCGenericStrategy,
-      ] = USDCVaultAdaptor.strategies
-      ;[
-        mockUSDTHarvestStrategy,
-        mockUSDTGenericStrategy,
-      ] = USDTVaultAdaptor.strategies
-      ;[
-        mockCurveStrategy,
-      ] = CurveVaultAdaptor.strategies
+    // Set up stablecoins + mocks needed for the vault adapter
+    lpt = await MockERC20.at(tokens.lpt.address);
+    weth = await MockERC20.at(tokens.weth.address);
+    mockController = await MockController.new();
+    mockInsurance = await MockInsurance.new();
+    mockPnL = await MockPnL.new();
+    await mockController.setInsurance(mockInsurance.address);
+    await mockController.setPnL(mockPnL.address);
 
-    await mockDAIVault.updateStrategyDebtRatio(mockDAIGenericStrategy.address, '0');
-    await insurance.batchSetUnderlyingTokensPercents([
-      daiPercent,
-      usdcPercent,
-      usdtPercent,
-    ])
+    // create the vault adapter
+    curveVaultAdapter = await VaultAdaptor.new(tokens.dai.address, { from: governance });
+    await curveVaultAdapter.setController(mockController.address, { from: governance });
+    await curveVaultAdapter.addToWhitelist(governance, {from: governance});
 
-    daiBaseNum = new BN(10).pow(mockDAI.detailed.decimals)
-    usdcBaseNum = new BN(10).pow(mockUSDC.detailed.decimals)
-    usdtBaseNum = new BN(10).pow(mockUSDT.detailed.decimals)
+    // create and add the AHv2 strategy to the adapter
+    primaryStrategy = await xPool.new(curveVaultAdapter.address);
+    await primaryStrategy.setKeeper(curveVaultAdapter.address, {from: governance});
+    const botLimit = toBN(0)
+    const topLimit = toBN(2).pow(toBN(256)).sub(toBN(1));
 
-    // await gvt.setInitBase(gvtInitBase);
-
-    const mintAmount = new BN(200000);
-    await mintToken(mockDAI, investor1, mintAmount.mul(daiBaseNum), mainnet);
-    await mintToken(mockUSDC, investor1, mintAmount.mul(usdcBaseNum), mainnet);
-    await mintToken(mockUSDT, investor1, mintAmount.mul(usdtBaseNum), mainnet);
-
-    await mintToken(mockDAI, investor1, mintAmount.mul(daiBaseNum), mainnet);
-    await mintToken(mockUSDC, investor1, mintAmount.mul(usdcBaseNum), mainnet);
-    await mintToken(mockUSDT, investor1, mintAmount.mul(usdtBaseNum), mainnet);
-
-    // 5000 usd : whale deposit
-    //await lifeguard.updateThreshold(threshold, { from: governance })
-    // 1000 usd : lifeguard's buffer, mapping to 25000 usd total assetd
-    //await lifeguard.updateBuffer(buffer, { from: governance })
-    // 500 usd : lifeguard's buffer threshold
-    //await lifeguard.updateBufferThreshold(bufferThreshold, { from: governance })
-
-    // add protocols to system
-    pool = lifeguard.pool
-    curve = pool.address
-
-    await exposure.setProtocolCount(2)
-
-    controller.setReward(reward)
-    await controller.setBigFishThreshold(1000, toBN(200).mul(daiBaseNum));
-    const deposit0 = [
-      toBN(50).mul(daiBaseNum),
-      toBN(50).mul(usdcBaseNum),
-      toBN(50).mul(usdtBaseNum),
-    ]
-
-    await controller.depositGvt(
-      deposit0,
-      investor1,
-    )
-    await controller.depositGvt(
-      deposit0,
-      investor1,
+    await curveVaultAdapter.addStrategy(
+      primaryStrategy.address,
+      10000, // set debtRatio to 100%
+      botLimit, topLimit,
+      { from: governance }
     )
 
-    await insurance.setWhaleThresholdDeposit(2000);
-    await controller.setBigFishThreshold(1, 100);
-    await insurance.setCurveVaultPercent(1000);
-    const deposit1 = [
-      toBN(3000).mul(daiBaseNum),
-      toBN(3000).mul(usdcBaseNum),
-      toBN(3000).mul(usdtBaseNum),
-    ]
-    let [usd, usdWithSlippage] = await controller.depositGvt(
-      deposit1,
-      investor1,
-    )
-    await lifeguard.investToCurveVault();
-    let postSystemAssetState = await getSystemAssetsInfo(controller)
-    let postUserAssetState = await getUserAssets(controller, investor1)
+    await setBalance('dai', investor1, '2000000');
+    await setBalance('usdc', investor1, '2000000');
+    await setBalance('usdt', investor1, '2000000');
+    await setBalance('lpt', investor1, '2000000', 1);
 
     // initiate
     yVault = new web3.eth.Contract(yVaultABI, yVaultAddress);
@@ -190,61 +99,59 @@ contract('Curve metapool strategy', async accounts => {
     metaZap = new web3.eth.Contract(zapABI, metaZapAddress);
     metaLpt = new web3.eth.Contract(lptABI, metaLptAddress);
 
-    await mockCurveStrategy.setMetaPool(yVaultAddress, metaCurveAddress)
-    await mockCurveStrategy.forceTend();
-    await mockCurveStrategy.tend();
+    await primaryStrategy.setMetaPool(yVaultAddress, metaCurveAddress)
+    await primaryStrategy.forceTend();
+    await primaryStrategy.tend();
   });
 
   describe('Strategy integration', function () {
     beforeEach(async function () {
+        await setBalance('lpt', curveVaultAdapter.address, '1000000', 1);
     });
 
     it('Should always return false when calling harvest trigger, if costs outweight gains', async () => {
-      return expect(CurveVaultAdaptor.strategyHarvestTrigger(0, new BN("1000").mul(baseNum))).to.eventually.equal(false);
+      return expect(curveVaultAdapter.strategyHarvestTrigger(0, new BN("1000").mul(baseNum))).to.eventually.equal(false);
     })
 
     it('Should always return true when calling harvest trigger, if gains outweigh costs', async () => {
-      return expect(CurveVaultAdaptor.strategyHarvestTrigger(0, new BN("1000"))).to.eventually.equal(true);
+      return expect(curveVaultAdapter.strategyHarvestTrigger(0, 0)).to.eventually.equal(true);
     })
 
-    it('Should be possible to invest assets into strategy', async () => {
-      const initialLpt = new BN(await lpt.balanceOf(mockCurveVault.address));
-      await expect(CurveVaultAdaptor.strategyHarvest(0, { from: accounts[0] })).to.be.fulfilled;
-
-      const postHarvestLpt = new BN(await lpt.balanceOf(CurveVaultAdaptor.address));
-
-      const expected = new BN(toWei('885', 'ether')); // 10000 - 5000
-      const actual = initialLpt.sub(postHarvestLpt)
-      return expect(actual).to.be.bignumber.closeTo(expected, new BN(5).mul(baseNum));
+    it.only('Should be possible to invest assets into strategy', async () => {
+      console.log(await lpt.balanceOf(curveVaultAdapter.address))
+      await expect(lpt.balanceOf(curveVaultAdapter.address)).to.eventually.be.a.bignumber.equal(toBN('1000000').mul(toBN(1E18)));
+      await expect(curveVaultAdapter.strategyHarvest(0, { from: accounts[0] })).to.be.fulfilled;
+      return expect(lpt.balanceOf(curveVaultAdapter.address)).to.be.a.bignumber.equal(0);
     });
 
-    it('Should not hold more assets than assigned debt ratio', async () => {
-      await CurveVaultAdaptor.strategyHarvest(0, { from: accounts[0] })
+    it.only('Should not hold more assets than assigned debt ratio', async () => {
+      await curveVaultAdapter.strategyHarvest(0, { from: accounts[0] })
+      return expect(primaryStrategy.estimatedTotalAssets()).to.be.bignumber.eq(toBN('1000000').mul(toBN(1E18)));
+
 
       const stratExpectedUpper = toWei('890', 'ether').toString();
       const stratExpectedLower = toWei('880', 'ether').toString();
-      const stratYAssets = await yVault.methods.balanceOf(mockCurveStrategy.address);
-      const actual = await mockCurveStrategy.estimatedTotalAssets();
+      const stratYAssets = await yVault.methods.balanceOf(primaryStrategy.address);
+      const actual = await
       await expect(actual).to.be.bignumber.lt(new BN(stratExpectedUpper));
-      return expect(actual).to.be.bignumber.gt(new BN(stratExpectedLower));
     })
 
     it('Should be able to change total amount assets in strategy', async () => {
-      await CurveVaultAdaptor.strategyHarvest(0, { from: accounts[0] })
+      await curveVaultAdapter.strategyHarvest(0, { from: accounts[0] })
 
-      const initVaultLpt = await lpt.balanceOf(mockCurveVault.address);
-      await mockCurveVault.updateStrategyDebtRatio(mockCurveStrategy.address, '7500');
+      const initVaultLpt = await lpt.balanceOf(curveVaultAdapter.address);
+      await curveVaultAdapter.updateStrategyDebtRatio(primaryStrategy.address, '7500');
 
-      const stratInfo = await mockCurveVault.strategies(mockCurveStrategy.address);
+      const stratInfo = await curveVaultAdapter.strategies(primaryStrategy.address);
       assert.strictEqual(stratInfo[1].toString(), '7500');
 
-      await CurveVaultAdaptor.strategyHarvest(0, { from: accounts[0] })
+      await curveVaultAdapter.strategyHarvest(0, { from: accounts[0] })
 
       const stratExpectedUpper = toWei('665', 'ether').toString();
       const stratExpectedLower = toWei('660', 'ether').toString();
-      const stratYAssets = await yVault.methods.balanceOf(mockCurveStrategy.address);
-      const actual = await mockCurveStrategy.estimatedTotalAssets();
-      const vaultLpt = await lpt.balanceOf(mockCurveVault.address);
+      const stratYAssets = await yVault.methods.balanceOf(primaryStrategy.address);
+      const actual = await primaryStrategy.estimatedTotalAssets();
+      const vaultLpt = await lpt.balanceOf(curveVaultAdapter.address);
       await expect(actual).to.be.bignumber.lt(new BN(stratExpectedUpper));
       await expect(actual).to.be.bignumber.gt(new BN(stratExpectedLower));
       // large loss of assets as we withdraw
@@ -254,26 +161,26 @@ contract('Curve metapool strategy', async accounts => {
     })
 
     it('Should pull out all assets if an emergency exist has been triggered', async () => {
-      const initialLpt = await lpt.balanceOf(mockCurveVault.address);
-      await CurveVaultAdaptor.strategyHarvest(0, { from: accounts[0] })
+      const initialLpt = await lpt.balanceOf(curveVaultAdapter.address);
+      await curveVaultAdapter.strategyHarvest(0, { from: accounts[0] })
 
       const stratExpectedUpper = toWei('890', 'ether').toString();
       const stratExpectedLower = toWei('880', 'ether').toString();
-      const stratYAssets = await yVault.methods.balanceOf(mockCurveStrategy.address);
-      const actual = await mockCurveStrategy.estimatedTotalAssets();
-      const vaultLpt = await lpt.balanceOf(mockCurveVault.address);
+      const stratYAssets = await yVault.methods.balanceOf(primaryStrategy.address);
+      const actual = await primaryStrategy.estimatedTotalAssets();
+      const vaultLpt = await lpt.balanceOf(curveVaultAdapter.address);
 
       await expect(actual).to.be.bignumber.lt(new BN(stratExpectedUpper));
       await expect(actual).to.be.bignumber.gt(new BN(stratExpectedLower));
       await expect(vaultLpt).to.be.bignumber.equal(new BN('0'));
 
-      await mockCurveStrategy.setEmergencyExit();
-      await CurveVaultAdaptor.strategyHarvest(0, { from: accounts[0] })
+      await primaryStrategy.setEmergencyExit();
+      await curveVaultAdapter.strategyHarvest(0, { from: accounts[0] })
 
-      const finalStratYAssets = await yVault.methods.balanceOf(mockCurveStrategy.address).call();
-      const finalStratMetaLpt = await metaLpt.methods.balanceOf(mockCurveStrategy.address).call();
-      const finalVaultLpt = await lpt.balanceOf(mockCurveVault.address);
-      const finalVaultMetaLpt = await metaLpt.methods.balanceOf(mockCurveVault.address).call();
+      const finalStratYAssets = await yVault.methods.balanceOf(primaryStrategy.address).call();
+      const finalStratMetaLpt = await metaLpt.methods.balanceOf(primaryStrategy.address).call();
+      const finalVaultLpt = await lpt.balanceOf(curveVaultAdapter.address);
+      const finalVaultMetaLpt = await metaLpt.methods.balanceOf(curveVaultAdapter.address).call();
 
       await expect(finalStratYAssets).to.be.bignumber.equal(new BN("0"));
       await expect(finalVaultLpt).to.be.bignumber.lt(initialLpt);
@@ -282,38 +189,38 @@ contract('Curve metapool strategy', async accounts => {
     });
 
     it('Should be possible to migrate strategy', async () => {
-      await CurveVaultAdaptor.strategyHarvest(0, { from: accounts[0] })
-      const stratYAssets = await yVault.methods.balanceOf(mockCurveStrategy.address).call();
+      await curveVaultAdapter.strategyHarvest(0, { from: accounts[0] })
+      const stratYAssets = await yVault.methods.balanceOf(primaryStrategy.address).call();
       await expect(stratYAssets).to.be.a.bignumber.gt(new BN("0"));
 
-      const newmockCurveStrategy = await xPool.new(mockCurveVault.address);
-      await newmockCurveStrategy.setKeeper(CurveVaultAdaptor.address);
-      await newmockCurveStrategy.setMetaPool(yVaultAddress, metaCurveAddress)
-      await newmockCurveStrategy.forceTend();
-      await newmockCurveStrategy.tend();
+      const newprimaryStrategy = await xPool.new(curveVaultAdapter.address);
+      await newprimaryStrategy.setKeeper(curveVaultAdapter.address);
+      await newprimaryStrategy.setMetaPool(yVaultAddress, metaCurveAddress)
+      await newprimaryStrategy.forceTend();
+      await newprimaryStrategy.tend();
 
-      await mockCurveStrategy.migrate(newmockCurveStrategy.address);
-      await mockCurveVault.revokeStrategy(mockCurveStrategy.address);
-      await mockCurveVault.removeStrategyFromQueue(mockCurveStrategy.address);
+      await primaryStrategy.migrate(newprimaryStrategy.address);
+      await curveVaultAdapter.revokeStrategy(primaryStrategy.address);
+      await curveVaultAdapter.removeStrategyFromQueue(primaryStrategy.address);
 
 
       const botLimit = toBN(0)
       const topLimit = toBN(2).pow(toBN(256)).sub(toBN(1));
       const performanceFee = toBN(100);
-      await mockCurveVault.addStrategy(
-        newmockCurveStrategy.address,
+      await curveVaultAdapter.addStrategy(
+        newprimaryStrategy.address,
         10000,
         botLimit, topLimit,
         { from: governance },
       )
-      const newVaultStrategy = await mockCurveVault.withdrawalQueue(0);
-      assert.strictEqual(newVaultStrategy, newmockCurveStrategy.address);
-      await CurveVaultAdaptor.strategyHarvest(0, { from: accounts[0] })
+      const newVaultStrategy = await curveVaultAdapter.withdrawalQueue(0);
+      assert.strictEqual(newVaultStrategy, newprimaryStrategy.address);
+      await curveVaultAdapter.strategyHarvest(0, { from: accounts[0] })
 
-      const oldStratYAssets = await yVault.methods.balanceOf(mockCurveStrategy.address).call();
-      const newStratYAssets = await yVault.methods.balanceOf(newmockCurveStrategy.address).call();
-      const oldLpMAssets = await metaLpt.methods.balanceOf(mockCurveStrategy.address).call()
-      const newLpMAssets = await metaLpt.methods.balanceOf(newmockCurveStrategy.address).call()
+      const oldStratYAssets = await yVault.methods.balanceOf(primaryStrategy.address).call();
+      const newStratYAssets = await yVault.methods.balanceOf(newprimaryStrategy.address).call();
+      const oldLpMAssets = await metaLpt.methods.balanceOf(primaryStrategy.address).call()
+      const newLpMAssets = await metaLpt.methods.balanceOf(newprimaryStrategy.address).call()
 
       await expect(oldStratYAssets).to.be.a.bignumber.equal(new BN("0"));
       await expect(oldLpMAssets).to.be.a.bignumber.equal(new BN("0"));
@@ -330,25 +237,25 @@ contract('Curve metapool strategy', async accounts => {
 
       const stratExpectedUpper = toWei('885', 'ether').toString();
       const stratExpectedLower = toWei('880', 'ether').toString();
-      await CurveVaultAdaptor.strategyHarvest(0, { from: accounts[0] })
-      const stratYAssets = await yVault.methods.balanceOf(mockCurveStrategy.address).call();
-      await mockCurveStrategy.setMetaPool(newYVault, newmetaCurve);
-      const preMigAssets = await yVault.methods.balanceOf(mockCurveStrategy.address).call();
-      await mockCurveStrategy.forceTend();
-      await mockCurveStrategy.tend();
-      const postMigNewAssets = await yVaultNew.methods.balanceOf(mockCurveStrategy.address).call();
-      const postMigOldAssets = await yVault.methods.balanceOf(mockCurveStrategy.address).call();
-      const postMigLptOldAssets = await lpt.balanceOf(mockCurveStrategy.address);
-      const postMigLptNewAssets = await lptNew.methods.balanceOf(mockCurveStrategy.address).call();
-      const actual = await mockCurveStrategy.estimatedTotalAssets();
+      await curveVaultAdapter.strategyHarvest(0, { from: accounts[0] })
+      const stratYAssets = await yVault.methods.balanceOf(primaryStrategy.address).call();
+      await primaryStrategy.setMetaPool(newYVault, newmetaCurve);
+      const preMigAssets = await yVault.methods.balanceOf(primaryStrategy.address).call();
+      await primaryStrategy.forceTend();
+      await primaryStrategy.tend();
+      const postMigNewAssets = await yVaultNew.methods.balanceOf(primaryStrategy.address).call();
+      const postMigOldAssets = await yVault.methods.balanceOf(primaryStrategy.address).call();
+      const postMigLptOldAssets = await lpt.balanceOf(primaryStrategy.address);
+      const postMigLptNewAssets = await lptNew.methods.balanceOf(primaryStrategy.address).call();
+      const actual = await primaryStrategy.estimatedTotalAssets();
       await expect(postMigOldAssets).to.be.a.bignumber.equal(new BN("0"));
       await expect(actual).to.be.bignumber.lt(new BN(stratExpectedUpper));
       return await expect(actual).to.be.bignumber.gt(new BN(stratExpectedLower));
     });
 
     it('Should correctly calculate generated profits from swapping fees', async () => {
-      await CurveVaultAdaptor.strategyHarvest(0, { from: accounts[0] })
-      await expect(mockCurveStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(new BN("0"));
+      await curveVaultAdapter.strategyHarvest(0, { from: accounts[0] })
+      await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(new BN("0"));
       const remDai = await mockDAI.balanceOf(bank);
       await mockDAI.approve(metaZapAddress, remDai, { from: bank });
       await metaZap.methods.add_liquidity(
@@ -366,7 +273,7 @@ contract('Curve metapool strategy', async accounts => {
       const bankLpTokens = await metaLpt.methods.balanceOf(bank).call();
       await metaLpt.methods.approve(metaZapAddress, bankLpTokens).send({ from: bank });
       await metaZap.methods.remove_liquidity(bankLpTokens.toString(), ["0", "0", "0", "0"]).send({ from: bank });
-      return expect(mockCurveStrategy.expectedReturn()).to.eventually.be.a.bignumber.gt(new BN("0"));
+      return expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.gt(new BN("0"));
     });
   });
 });
