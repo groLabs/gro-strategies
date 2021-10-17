@@ -35,6 +35,8 @@ interface VaultAPI {
      */
     function debtOutstanding() external view returns (uint256);
 
+    function strategyDebt() external view returns (uint256);
+
     /**
      * View how much the Vault expect this Strategy to return at the current
      * block, based on its present performance (since its last report). Can be
@@ -519,7 +521,7 @@ abstract contract BaseStrategy {
         uint256 amountFreed;
         (amountFreed, _loss) = liquidatePosition(_amountNeeded);
         // Send it directly back (NOTE: Using `msg.sender` saves some gas here)
-        want.safeTransfer(msg.sender, amountFreed);
+        if(amountFreed > 0) want.safeTransfer(msg.sender, amountFreed);
         // NOTE: Reinvest anything leftover on next `tend`/`harvest`
     }
 

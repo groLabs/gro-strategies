@@ -622,6 +622,10 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
         return _debtOutstanding(msg.sender);
     }
 
+    function strategyDebt() external view returns (uint256) {
+        return strategies[msg.sender].totalDebt;
+    }
+
     /// @notice Remove unwanted token from contract
     /// @param _token Address of unwanted token, cannot be want token
     /// @param recipient Reciever of unwanted token 
