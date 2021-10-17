@@ -11,11 +11,10 @@ const { toBN, BN, toWei } = web3.utils
 const { constants } = require('./utils/constants');
 const { expect, ZERO, tokens, setBalance, setStorageAt, toBytes32 } = require('./utils/common-utils');
 const fs = require('fs');
-const mainnet = process.env['mainnet']
 
 const abiDecoder = require('abi-decoder');
 
-const sushiSpell = '0xc4a59cfEd3FE06bDB5C21dE75A70B20dB280D8fE'
+const sushiSpell =  '0xDc9c7A2Bae15dD89271ae5701a6f4DB147BAa44C'
 const router = '0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F'
 const pool = '0xC3D03e4F041Fd4cD388c549Ee2A29a9E5075882f'
 const AHGov = '0xb593d82d53e2c187dc49673709a6e9f806cdc835'
@@ -47,59 +46,7 @@ let daiAdaptor,
     admin,
     governance,
     investor1,
-    investor2,
-    blockNo;
-
-abiDecoder.addABI(spellSushiABI);
-abiDecoder.addABI(homoraABI);
-
-async function getData(data) {
-        const decodedData = abiDecoder.decodeMethod(data);
-        const position = decodedData.params[0]['value']
-        const spell = decodedData.params[1]['value']
-        const payload = decodedData.params[2]['value']
-        return [position, spell, payload]
-
-}
-
-async function encode(userAmount, spell) {
-        borrowAmount = await uni.methods.getAmountsOut(userAmount, path).call()
-        minAmounts = []
-        minAmounts[0] = toBN(borrowAmount[0]).mul(toBN(9999)).div(toBN(10000))
-        minAmounts[1] = toBN(borrowAmount[1]).mul(toBN(9999)).div(toBN(10000))
-    amt = [
-                borrowAmount[0],
-                '0',
-                '0',
-                '0',
-                borrowAmount[1],
-                '0',
-                minAmounts[0].toString(),
-                minAmounts[1].toString(),
-
-    ]
-
-        data = await spell.methods.addLiquidityWERC20(dai._address, weth, amt).encodeABI()
-        return data;
-}
-
-async function swap(amount, path) {
-    const deadline = (await web3.eth.getBlockNumber().then(res => web3.eth.getBlock(res))).timestamp
-    console.log('------swap');
-    console.log(amount.toString());
-    console.log(await dai.balanceOf(investor1).then(res=>res.toString()));
-    console.log(await dai.allowance(investor1, router).then(res=>res.toString()));
-    const change = await sushiSwapRouter.methods.getAmountsOut(amount, path).call();
-    console.log('change ' + change[0])
-    console.log('change ' + change[1])
-    await sushiSwapRouter.methods.swapExactTokensForTokens(
-        change[0],
-        change[1],
-        path,
-        investor1,
-        deadline + 1000
-    ).send({from: investor1});
-}
+    investor2;
 
 contract('Alpha homora test', function (accounts) {
   admin = accounts[0]
@@ -107,16 +54,46 @@ contract('Alpha homora test', function (accounts) {
   investor1 = accounts[8]
   investor2 = accounts[9]
   amount = new BN(10000)
-  console.log(admin)
-  console.log(governance)
+
+  // Do a swap against a uni/sushi pool to simulate price changes
+  async function swap(amount, path) {
+      const deadline = (await web3.eth.getBlockNumber().then(res => web3.eth.getBlock(res))).timestamp
+      const change = await sushiSwapRouter.methods.getAmountsOut(amount, path).call();
+      await sushiSwapRouter.methods.swapExactTokensForTokens(
+          change[0],
+          change[1],
+          path,
+          investor1,
+          deadline + 1000
+      ).send({from: investor1});
+  }
+
+
+  async function snapshotChain() {
+      return await network.provider.request(
+          {
+              method: "evm_snapshot",
+              params: []
+          });
+  }
+
+  async function revertChain(snapshotId) {
+      await network.provider.request(
+          {
+              method: "evm_revert",
+              params: [snapshotId]
+          });
+  }
 
   beforeEach(async function () {
 
+    // Set up the base contracts
     homoraBank = await new web3.eth.Contract(homoraABI, proxyHomora);
     spellSushi = await new web3.eth.Contract(spellSushiABI, sushiSpell);
     masterChef = await new web3.eth.Contract(masterChefABI, chef);
     sushiSwapRouter = await new web3.eth.Contract(uniABI, router);
 
+    // Impersonate AH governance so that we an add this strategy to the whitelist
     await hre.network.provider.request(
         {
             method: "hardhat_impersonateAccount",
@@ -124,6 +101,7 @@ contract('Alpha homora test', function (accounts) {
         }
     )
 
+    // Set up stablecoins + mocks needed for the vault adapter
     dai = await MockERC20.at(tokens.dai.address);
     weth = await MockERC20.at(tokens.weth.address);
     sushi = await MockERC20.at(sushiToken);
@@ -133,21 +111,26 @@ contract('Alpha homora test', function (accounts) {
     await mockController.setInsurance(mockInsurance.address);
     await mockController.setPnL(mockPnL.address);
 
+    // create the vault adapter
     daiAdaptor = await VaultAdaptor.new(tokens.dai.address, { from: governance });
     daiVault = daiAdaptor;
     await daiAdaptor.setController(mockController.address, { from: governance });
 
+    // create and add the AHv2 strategy to the adapter
     primaryStrategy = await AHStrategy.new(daiVault.address, sushiSpell, router, pool, poolID);
     await primaryStrategy.setKeeper(daiAdaptor.address, {from: governance});
     const botLimit = toBN(0)
     const topLimit = toBN(2).pow(toBN(256)).sub(toBN(1));
+
     await daiVault.addStrategy(
       primaryStrategy.address,
-      10000,
+      10000, // set debtRatio to 100%
       botLimit, topLimit,
       { from: governance }
     )
 
+    // add a secondary dummy strategy, potentially not necessary but we have done
+    // all modelling with the assumption that we have 2 strategies per vault min.
     secondaryStrategy = await TestStrategy.new(daiVault.address)
     await secondaryStrategy.setKeeper(daiAdaptor.address, {from: governance});
     await daiVault.addStrategy(
@@ -157,123 +140,141 @@ contract('Alpha homora test', function (accounts) {
       { from: governance }
     )
 
+    // add strategy to whitelist in homorabank and gov to whitelist in adapter so they can call harvest
     await homoraBank.methods.setWhitelistUsers([primaryStrategy.address], [true]).send({from: AHGov})
     await daiAdaptor.addToWhitelist(governance, {from: governance});
-    blockNo = await web3.eth.getBlockNumber()
+    for (let i = 0; i < 10; i++) {
+      await network.provider.send("evm_mine");
+    }
   })
 
+  // The strategy needs to be able to open positions in AHv2
   describe("Opening position", function () {
     beforeEach(async function () {
+        // give that adapor 1M
         await setBalance('dai', daiAdaptor.address, '1000000');
     })
 
+    // Given an investment of 1M dai, the strategy should open up a market neutral position
+    // (2x) leverage of dai/eth in sushiswap through alpha homora
     it('Should be possible to open up a position in AHv2', async () => {
+        // We dont have a position
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
         await daiAdaptor.strategyHarvest(0, {from: governance})
+        // We do have a position
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
-        console.log(JSON.stringify(alphaData));
+        // We are the owner of the position
         assert.strictEqual(alphaData['owner'], primaryStrategy.address);
+        // TOOD check size of position
     })
 
+    // Check that we can add assets to a position
     it('Should be possible to add to a position', async () => {
         await daiAdaptor.strategyHarvest(0, {from: governance})
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebt));
-        console.log(JSON.stringify(alphaData));
 
+        // add 1 M dai to adaper
         await setBalance('dai', daiAdaptor.address, '1000000');
+        // run harvest
         await expect(daiAdaptor.strategyHarvest(0, {from: governance})).to.eventually.be.fulfilled;
+        // we should have the same position
         return expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
+    })
+  })
+
+  // Given an existing positon, it should be possible to close it at will, or through calling
+  // harvest/tend, given a specific set of circumstances.
+  describe('Closing position', function () {
+    beforeEach(async function () {
+        await setBalance('dai', primaryStrategy.address, '10000000');
+        await daiAdaptor.strategyHarvest(0, {from: governance})
     })
 
     it('Should be possible to force close a position', async () => {
-        await daiAdaptor.strategyHarvest(0, {from: governance})
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebt));
-        console.log(JSON.stringify(alphaData));
+        // There should be a position with debt and collateral
         assert.isAbove(Number(alphaDebt['debts'][0]), 0);
         assert.isAbove(Number(alphaData['collateralSize']), 0);
 
+        // force close the position
         await primaryStrategy.panicClose(position, {from: governance});
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebtClose));
-        console.log(JSON.stringify(alphaDataClose));
+        // position should have no debt or collateral
         await expect(homoraBank.methods.getPositionDebts(position).call()).to.eventually.have.property("debts").that.eql([]);
         return expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
-    })
-  })
-
-  describe('Closing position', function () {
-    beforeEach(async function () {
-        await setBalance('dai', primaryStrategy.address, '100000000');
     })
 
     it('Should close the position if the price has diviated with more than 5%', async () => {
+        const sid = await snapshotChain();
         await dai.approve(router, constants.MAX_UINT256, {from: investor1});
         await weth.approve(router, constants.MAX_UINT256, {from: investor1});
-        await daiAdaptor.strategyHarvest(0, {from: governance})
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebt));
-        console.log(JSON.stringify(alphaData));
 
-        console.log('il ' + await primaryStrategy.volatilityCheck());
-        const larget_number = toBN(1E6).mul(toBN(1E18));
+        // simulate price movment by trading in the pool
+        const large_number = toBN(1E6).mul(toBN(1E18));
         let change;
         while (true) {
             await setBalance('dai', investor1, '1000000');
-            await swap(larget_number, [tokens.dai.address, tokens.weth.address])
+            await swap(large_number, [tokens.dai.address, tokens.weth.address])
             change = await primaryStrategy.volatilityCheck();
+            // once were above a 4% price change
             if (change == true) break;
         }
+        // run harvest
         await daiAdaptor.strategyHarvest(0, {from: governance})
+        // active position should == 0
         expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebtClose));
-        console.log(JSON.stringify(alphaDataClose));
         // revert the swap
         const userWant = await weth.balanceOf(investor1);
         await swap(userWant, [tokens.weth.address, tokens.dai.address])
+        // the previous position should have no debt nor collateral
         await expect(homoraBank.methods.getPositionDebts(position).call()).to.eventually.have.property("debts").that.eql([]);
-        return expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
+        await expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
+
+        return revertChain(sid);
     })
   })
 
+  // Adjusting the position by adding and removing assets - can be done during harvest events (adding credit) or withdrawals
   describe('Adjusting position', function () {
     beforeEach(async function () {
         await setBalance('dai', daiAdaptor.address, '1000000');
         await daiAdaptor.strategyHarvest(0, {from: governance})
     })
 
+    // If we have a healthy position we should take on more debt when we add assets to the position
     it('Should take on more debt and hold more colateral when adding to the positions', async () => {
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebt));
-        console.log(JSON.stringify(alphaData));
 
+        // add assets to daiAdaptor
         await setBalance('dai', daiAdaptor.address, '1000000');
+        // adjust the position, should take on more debt as the collateral ratio is fine
         await daiAdaptor.strategyHarvest(0, {from: governance})
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
 
         const alphaDataAdd = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtAdd = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebtAdd));
-        console.log(JSON.stringify(alphaDataAdd));
+        // the debt and collateral should both have increased
         assert.isAbove(Number(alphaDebtAdd['debts'][0]), Number(alphaDebt['debts'][0]));
         assert.isAbove(Number(alphaDataAdd['collateralSize']), Number(alphaData['collateralSize']));
     })
 
+    // we should take on more debt if the position is unhealthy
     it('Should not take on more debt when adding if above target collateral factor', async () => {
+        // set the collateral factor
         await setStorageAt(
             primaryStrategy.address,
             ethers.utils.hexValue(9),
@@ -282,23 +283,24 @@ contract('Alpha homora test', function (accounts) {
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebt));
-        console.log(JSON.stringify(alphaData));
 
-        await
         await setBalance('dai', daiAdaptor.address, '1000000');
+        // add to position
         await daiAdaptor.strategyHarvest(0, {from: governance})
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
 
         const alphaDataAdd = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtAdd = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebtAdd));
-        console.log(JSON.stringify(alphaDataAdd));
+        // debt should remain the same
         assert.strictEqual(Number(alphaDebtAdd['debts'][0]), Number(alphaDebt['debts'][0]));
+        // collateral should ahve increased
         assert.isAbove(Number(alphaDataAdd['collateralSize']), Number(alphaData['collateralSize']));
     })
 
+    // We need to close the position under certain conditions to aboid liquidation, these conditions
+    // are unlikely to occur as price volatility should push us to close a position before anything
     it('Should close the position if above collateral threshold when adding assets', async () => {
+        // set collateral factor and treshold
         await setStorageAt(
             primaryStrategy.address,
             ethers.utils.hexValue(9),
@@ -312,17 +314,15 @@ contract('Alpha homora test', function (accounts) {
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebt));
-        console.log(JSON.stringify(alphaData));
 
         await setBalance('dai', daiAdaptor.address, '1000000');
+        // try adding to position
         await daiAdaptor.strategyHarvest(0, {from: governance})
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
 
         const alphaDataAdd = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtAdd = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebtAdd));
-        console.log(JSON.stringify(alphaDataAdd));
+        // position is closed, no debt nor collateral
         await expect(homoraBank.methods.getPositionDebts(position).call()).to.eventually.have.property("debts").that.eql([]);
         return expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
     })
@@ -331,8 +331,6 @@ contract('Alpha homora test', function (accounts) {
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebt));
-        console.log(JSON.stringify(alphaData));
 
         const initUserDai = await dai.balanceOf(governance);
         // simulate withdrawal from AHv2 strategy via vaultAdapter
@@ -340,46 +338,92 @@ contract('Alpha homora test', function (accounts) {
         const amount = toBN(30000).mul(toBN(1E18))
         await daiAdaptor.withdrawByStrategyIndex(amount, governance, 0, {from:governance});
 
-        console.log('dai amount post ' + await dai.balanceOf(governance))
         const alphaDataRemove = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtRemove = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebtRemove));
-        console.log(JSON.stringify(alphaDataRemove));
-        console.log('init ' + initUserDai.toString())
-        console.log('post ' + (await dai.balanceOf(governance)).toString())
+        // position remains the same
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
+        // withdrawer should have more dai
         await expect(dai.balanceOf(governance)).to.eventually.be.a.bignumber.gt(initUserDai);
+        // position debt and collateral has decreased
         assert.isBelow(Number(alphaDebtRemove['debts'][0]), Number(alphaDebt['debts'][0]));
         return assert.isBelow(Number(alphaDataRemove['collateralSize']), Number(alphaData['collateralSize']));
     })
 
-    it('Should close position if withdrawing more than 90% of position', async () => {
+    // if vault debts to the strategy increases, the strategy should try to unwind the position to
+      // pay these back
+    it('Should be posible to pay back debt to the vault', async () => {
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebt));
-        console.log(JSON.stringify(alphaData));
+        const stratData = await daiAdaptor.strategies(primaryStrategy.address);
+        // set new debtRatio to 70%
+        const expected = await primaryStrategy.expectedReturn();
+        await daiAdaptor.updateStrategyDebtRatio(primaryStrategy.address, 7000, {from: governance});
+
+        const initVaultDai = await dai.balanceOf(daiAdaptor.address);
+        return expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(expected);
+        // simulate withdrawal from AHv2 strategy via vaultAdapter
+        await mockController.setInsurance(governance, {from: governance});
+        const amount = toBN(30000).mul(toBN(1E18))
+        await daiAdaptor.withdrawByStrategyIndex(amount, governance, 0, {from:governance});
+
+        const alphaDataRemove = await homoraBank.methods.getPositionInfo(position).call()
+        const alphaDebtRemove = await homoraBank.methods.getPositionDebts(position).call()
+        // adaptor should have more dai
+        await expect(dai.balanceOf(daiAdaptor)).to.eventually.be.a.bignumber.gt(initVaultDai);
+        // position remains the same
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
+        // position debt and collateral has decreased
+        assert.isBelow(Number(alphaDebtRemove['debts'][0]), Number(alphaDebt['debts'][0]));
+        assert.isBelow(Number(alphaDataRemove['collateralSize']), Number(alphaData['collateralSize']));
+        return expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(toBN(0));
+    })
+
+    it('Should adjust the position when withdrawing up to 80% of position', async () => {
+        const position = await primaryStrategy.activePosition();
+        const alphaData = await homoraBank.methods.getPositionInfo(position).call()
+        const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
 
         // simulate withdrawal from AHv2 strategy via vaultAdapter
         const initUserDai = await dai.balanceOf(governance);
         await mockController.setInsurance(governance, {from: governance});
-        const amount = toBN(8500000).mul(toBN(1E18))
+        const amount = toBN(775000).mul(toBN(1E18)) // ~ 79.5% of the position
         await daiAdaptor.withdrawByStrategyIndex(amount, governance, 0, {from:governance});
 
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(position));
+
+        const alphaDataRemove = await homoraBank.methods.getPositionInfo(position).call()
+        const alphaDebtRemove = await homoraBank.methods.getPositionDebts(position).call()
+        await expect(dai.balanceOf(governance)).to.eventually.be.a.bignumber.gt(initUserDai);
+        // position debt and collateral has decreased
+        assert.isBelow(Number(alphaDebtRemove['debts'][0]), Number(alphaDebt['debts'][0]));
+        return assert.isBelow(Number(alphaDataRemove['collateralSize']), Number(alphaData['collateralSize']));
+    })
+
+    it('Should close position if withdrawing more than 80% of position', async () => {
+        const position = await primaryStrategy.activePosition();
+        const alphaData = await homoraBank.methods.getPositionInfo(position).call()
+        const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
+
+        // simulate withdrawal from AHv2 strategy via vaultAdapter
+        const initUserDai = await dai.balanceOf(governance);
+        await mockController.setInsurance(governance, {from: governance});
+        const amount = toBN(850000).mul(toBN(1E18))
+        await daiAdaptor.withdrawByStrategyIndex(amount, governance, 0, {from:governance});
+
+        // position is closed
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
 
         const alphaDataRemove = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtRemove = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebtRemove));
-        console.log(JSON.stringify(alphaDataRemove));
-        console.log('init ' + initUserDai.toString())
-        console.log('post ' + (await dai.balanceOf(governance)).toString())
+        // withdrawer has more dai
         await expect(dai.balanceOf(governance)).to.eventually.be.a.bignumber.gt(initUserDai);
+        // position has no debt or collateral
         await expect(homoraBank.methods.getPositionDebts(position).call()).to.eventually.have.property("debts").that.eql([]);
         return expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
     })
 
     it('Should close the position if collateral ratio is above threshold when withdrawing', async () => {
-        console.log(await web3.eth.getStorageAt(primaryStrategy.address, 9))
         await setStorageAt(
             primaryStrategy.address,
             ethers.utils.hexValue(9),
@@ -393,8 +437,6 @@ contract('Alpha homora test', function (accounts) {
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebt));
-        console.log(JSON.stringify(alphaData));
 
         // simulate withdrawal from AHv2 strategy via vaultAdapter
         const initUserDai = await dai.balanceOf(governance);
@@ -406,10 +448,6 @@ contract('Alpha homora test', function (accounts) {
 
         const alphaDataRemove = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtRemove = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebtRemove));
-        console.log(JSON.stringify(alphaDataRemove));
-        console.log('init ' + initUserDai.toString())
-        console.log('post ' + (await dai.balanceOf(governance)).toString())
         await expect(dai.balanceOf(governance)).to.eventually.be.a.bignumber.gt(initUserDai);
         await expect(homoraBank.methods.getPositionDebts(position).call()).to.eventually.have.property("debts").that.eql([]);
         return expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
@@ -419,94 +457,161 @@ contract('Alpha homora test', function (accounts) {
   describe('Assets interactions', function () {
     beforeEach(async function () {
         await dai.approve(router, constants.MAX_UINT256, {from: investor1});
+        await sushi.approve(router, constants.MAX_UINT256, {from: investor1});
         await weth.approve(router, constants.MAX_UINT256, {from: investor1});
-        await setBalance('dai', daiAdaptor.address, '100000000');
-        await daiAdaptor.strategyHarvest(0, {from: governance})
     })
 
+    // Should be able to see how much sushi we are expecting
     it('Should correctly estimated sushi assets', async () => {
+        const sid = await snapshotChain();
+        await setBalance('dai', daiAdaptor.address, '10000000');
+        await daiAdaptor.strategyHarvest(0, {from: governance});
         const position = await primaryStrategy.activePosition();
         await masterChef.methods.updatePool(2).send({from: governance});
-        const initSushi =  await primaryStrategy.pendingSushi();
+        const initSushi =  await primaryStrategy.pendingSushi(position);
         for (let i = 0; i < 10; i++) {
           await network.provider.send("evm_mine");
         }
         await masterChef.methods.updatePool(2).send({from: governance});
-        console.log('sushi amount post 10 blocks ' + await primaryStrategy.pendingSushi())
-        return expect(primaryStrategy.pendingSushi()).to.eventually.be.a.bignumber.gt(initSushi);
+        return expect(primaryStrategy.pendingSushi(position)).to.eventually.be.a.bignumber.gt(initSushi);
     })
 
-    it.only('Should correctly sell of eth and sushi', async () => {
+    // Sell assets
+    it('Should correctly sell of eth and sushi', async () => {
+        const sid = await snapshotChain();
+        await setBalance('dai', daiAdaptor.address, '10000000');
+        await daiAdaptor.strategyHarvest(0, {from: governance});
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebt));
-        console.log(JSON.stringify(alphaData));
 
-        console.log('il ' + await primaryStrategy.volatilityCheck());
-        const larget_number = toBN(1E6).mul(toBN(1E18));
         await masterChef.methods.updatePool(2).send({from: governance});
-        const initSushi =  await primaryStrategy.pendingSushi();
-        for (let i = 0; i < 10; i++) {
+        const initSushi =  await primaryStrategy.pendingSushi(position);
+        for (let i = 0; i < 1000; i++) {
           await network.provider.send("evm_mine");
         }
         await masterChef.methods.updatePool(2).send({from: governance});
         const initEth = await web3.eth.getBalance(primaryStrategy.address);
         let change;
+        const larget_number = toBN(1E4).mul(toBN(1E18));
         while (true) {
-            await setBalance('weth', investor1, '1000000');
-            await swap(larget_number, [tokens.weth.address, tokens.dai.address])
+            await setBalance('weth', investor1, '10000');
+            await expect(swap(larget_number, [tokens.weth.address, tokens.dai.address])).to.eventually.be.fulfilled;
             change = await primaryStrategy.volatilityCheck();
             if (change == true) break;
         }
-        await daiAdaptor.strategyHarvest(0, {from: governance})
-        expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
+        await daiAdaptor.strategyHarvest(0, {from: governance});
+        // revert the swap
+        const userWant = await dai.balanceOf(investor1);
+        await swap(userWant, [tokens.dai.address, tokens.weth.address])
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
-        console.log(JSON.stringify(alphaDebtClose));
-        console.log(JSON.stringify(alphaDataClose));
-        const postSushi =  await sushi.balanceOf(primaryStrategy.address);
-        const postEth = await web3.eth.getBalance(primaryStrategy.address);
-        // revert the swap
-        const userDai = await dai.balanceOf(investor1);
-        await swap(userDai, [tokens.dai.address, tokens.weth.address])
-        console.log('init eth ' + initEth)
-        console.log('post eth ' + postEth)
-        console.log('init sushi ' + initSushi);
-        console.log('post sushi ' + postSushi);
+        await network.provider.send("evm_mine");
+        await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.gt(initSushi);
+        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.gt(initEth);
+        await daiAdaptor.strategyHarvest(0, {from: governance})
+        await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.equal(toBN(0));
+        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(toBN(0), toBN(1E15));
+
+        return revertChain(sid);
     })
 
-    it.only('Should estimate totalAssets', async () => {
+    // should be able to estiamte totalAsset changes
+    it('Should estimate totalAssets', async () => {
+        const sid = await snapshotChain();
+        await setBalance('dai', daiAdaptor.address, '10000000');
+        await daiAdaptor.strategyHarvest(0, {from: governance});
         const amount = '100000'
+        const position = await primaryStrategy.activePosition();
         const initAssets = await primaryStrategy.estimatedTotalAssets();
-        const reserves = await dai.balanceOf(primaryStrategy);
+        const reserves = await dai.balanceOf(primaryStrategy.address);
         await setBalance('dai', primaryStrategy.address, amount);
-        const expected = toBN(amount).mul(toBN(1E18)).sub(reserves);
-        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.equal(expect);
+        // expect totalAssets
+        const expected = toBN(amount).mul(toBN(1E18)).sub(reserves).add(initAssets);
+        // estimated totalAssets
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.equal(expected);
+        // update sushi rewards
         await masterChef.methods.updatePool(2).send({from: governance});
-        const initSushi =  await primaryStrategy.pendingSushi();
+        const initSushi =  await primaryStrategy.pendingSushi(position);
+        // pass 10 blocks
         for (let i = 0; i < 10; i++) {
           await network.provider.send("evm_mine");
         }
+        // expected total assets without sushi rewards...
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(expected);
+        const expectedNoSushi = await primaryStrategy.estimatedTotalAssets();
         await masterChef.methods.updatePool(2).send({from: governance});
-        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(expect);
+        // ..should be lower than when we updated the rewards
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(expectedNoSushi);
     })
 
+    // Simulate changes in expected return
     it('Should estimate expected return', async () => {
+        const sid = await snapshotChain();
+        const initPosition = await primaryStrategy.activePosition();
+        await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(toBN(0));
+        await setBalance('dai', daiAdaptor.address, '1000000');
+        await daiAdaptor.strategyHarvest(0, {from: governance});
         const expected = await primaryStrategy.expectedReturn();
+        const alphaData = await homoraBank.methods.getPositionInfo(initPosition).call()
+        const alphaDebt = await homoraBank.methods.getPositionDebts(initPosition).call()
+        await daiAdaptor.strategyHarvest(0, {from: governance});
+        // Expect position expected return to be 0
+        await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.eq(toBN(0));
         const stratData = await daiAdaptor.strategies(primaryStrategy.address);
-        console.log(JSON.stringify(stratData));
-        console.log('expected ' + expected);
-        assert.strictEqual(Number(expected), 0);
-        const amount = '100000'
+        const position = await primaryStrategy.activePosition();
+        const alphaDataPre = await homoraBank.methods.getPositionInfo(position).call()
+        const alphaDebtPre = await homoraBank.methods.getPositionDebts(position).call()
+        const amount = '200000'
         const initAssets = await primaryStrategy.estimatedTotalAssets();
-        const reserves = await dai.balanceOf(primaryStrategy);
+        const reserves = await dai.balanceOf(primaryStrategy.address);
+        // add "profit" to strategy
         await setBalance('dai', primaryStrategy.address, amount);
-        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(expected);
+        // should report more asssets and more expected returns
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(initAssets);
+        await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.gt(expected);
+        const preSwap = await primaryStrategy.expectedReturn();
+        const large_number = toBN(1E5).mul(toBN(1E18));
+        let change;
+        // simulate swaps
+        while (true) {
+            await setBalance('weth', investor1, '100000');
+            await swap(large_number, [tokens.weth.address, tokens.dai.address])
+            change = await primaryStrategy.volatilityCheck();
+            if (change == true) break;
+        }
+        // revert the swap to neutral
+        const userdai = await dai.balanceOf(investor1);
+        await swap(userdai, [tokens.dai.address, tokens.weth.address]);
+        await network.provider.send("evm_mine");
+        await setStorageAt(
+            primaryStrategy.address,
+            ethers.utils.hexValue(9),
+            "0x0000000000000000000000000000000000000000000000000000000000000001"
+        );
+        await setStorageAt(
+            primaryStrategy.address,
+            ethers.utils.hexValue(10),
+            "0x0000000000000000000000000000000000000000000000000000000000000001"
+        );
+        // should now have additional gains from swapping fee and sushi tokens
+        await masterChef.methods.updatePool(2).send({from: governance});
+        await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.gt(preSwap);
+        // harvest gains
+        // await daiAdaptor.strategyHarvest(0, {from: governance});
+        const alphaDataFin = await homoraBank.methods.getPositionInfo(position).call()
+        const alphaDebtFin = await homoraBank.methods.getPositionDebts(position).call()
+
+        // expectedReturn should be back at 0 (but report profit)
+        await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.gt(toBN(0));
+
+        return revertChain(sid);
     })
   })
 
   describe("Setters", function () {
+
     it('Should be possible to change the minWant', async () => {
         const originalWant = await primaryStrategy.minWant();
         await expect(originalWant).to.be.a.bignumber.gt(toBN(0));
