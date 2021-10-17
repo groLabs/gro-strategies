@@ -219,10 +219,10 @@ contract AHv2Farmer is BaseStrategy {
 
     // function headers for generating signatures for encoding function calls
     // AHv2 homorabank uses encoded spell function calls in order to cast spells
-    string sushiOpen = 'addLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256),uint256)';
-    string sushiClose = 'removeLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256))';
+    string constant sushiOpen = 'addLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256),uint256)';
+    string constant sushiClose = 'removeLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256))';
     // function for selling eth for want (uniswap router)
-    string ethForTokens = 'swapExactETHForTokens(uint256,address[],address,uint256)';
+    string constant ethForTokens = 'swapExactETHForTokens(uint256,address[],address,uint256)';
 
     // poolId for masterchef - can be commented out for non sushi spells
     uint256 immutable poolId;
