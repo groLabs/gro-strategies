@@ -553,8 +553,12 @@ contract AHv2Farmer is BaseStrategy {
             amt.bBorrow = amounts[1];
         } 
         // apply 100 BP slippage
-        amt.aMin = 0;//amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
-        amt.bMin = 0;//amounts[1] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
+        amt.aMin = 0;
+        amt.bMin = 0;
+        // Temp fix to handle adjust position without borrow - as these transactions are run behind a private node
+        //      or flashbot, so shouldnt impact anything to set minaAmount to 0
+        // amt.aMin = amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
+        // amt.bMin = amounts[1] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
     }
 
     /*
