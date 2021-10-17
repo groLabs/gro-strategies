@@ -662,7 +662,7 @@ contract AHv2Farmer is BaseStrategy {
      * @notice expected profit/loss of the strategy
      */
     function expectedReturn() external view returns (int256) {
-        return int256(estimatedTotalAssets()) - int256(vault.strategies(address(this)).totalDebt);
+        return int256(estimatedTotalAssets()) - int256(vault.strategyDebt());
     }
 
     /*
@@ -848,18 +848,20 @@ contract AHv2Farmer is BaseStrategy {
 
         (uint256 assets, uint256 _balance) = _estimatedTotalAssets(_positionId);
 
-        uint256 debtOutstanding = vault.debtOutstanding();
+        uint256 debt = vault.strategyDebt();
 
         // cannot repay the entire debt
-        if(debtOutstanding > assets) {
-            _loss = debtOutstanding - (assets);
+        if(debt > assets) {
+            _loss = debt - assets;
+            if (_loss >= _amountNeeded) {
+                _loss = _amountNeeded;
+                _amountFreed = 0;
+                return (_amountFreed, _loss);
+            }
+            _amountNeeded = _amountNeeded - _loss;
         }
 
         // if the asset value of our position is less than what we need to withdraw, close the position
-        int256 changeFactor = getCollateralFactor(_positionId) - targetCollateralRatio;
-        if (volatilityCheck()) {
-            require(changeFactor < 50 && changeFactor > -50, 'liquidatePosition: collateral vs. volatility mismatch');
-        }
         if (assets < _amountNeeded) {
             if (activePosition != 0) {
                 closePosition(_positionId, false);
@@ -869,6 +871,7 @@ contract AHv2Farmer is BaseStrategy {
             _amountFreed = Math.min(_amountNeeded, want.balanceOf(address(this)));
         } else {
             // do we have enough assets in strategy to repay?
+            int256 changeFactor = getCollateralFactor(_positionId) - targetCollateralRatio;
             if (_balance < _amountNeeded) {
                 uint256 remainder;
                 if (changeFactor > 500) {
