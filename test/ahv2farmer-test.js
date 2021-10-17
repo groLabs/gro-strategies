@@ -14,7 +14,7 @@ const fs = require('fs');
 
 const abiDecoder = require('abi-decoder');
 
-const sushiSpell = '0xc4a59cfEd3FE06bDB5C21dE75A70B20dB280D8fE'
+const sushiSpell = '0xDc9c7A2Bae15dD89271ae5701a6f4DB147BAa44C'
 const router = '0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F'
 const pool = '0xC3D03e4F041Fd4cD388c549Ee2A29a9E5075882f'
 const AHGov = '0xb593d82d53e2c187dc49673709a6e9f806cdc835'
