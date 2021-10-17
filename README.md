@@ -8,7 +8,7 @@ Strategies for gro-protocol
 1. install `nodejs`, refer to [nodejs](https://nodejs.org/en/)
 2. install `yarn`, refer to [yarn](https://classic.yarnpkg.com/en/)
 3. setup the .env file in the root directory of the project:
-    needs a rpc node reference called main, e.g. 'mainnet=https://eth-mainnet.alchemyapi.io/v2/<KEY>'
+    needs a rpc node reference called main, e.g. `mainnet=https://eth-mainnet.alchemyapi.io/v2/<KEY>`
 
 ## Test
 

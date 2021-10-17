@@ -58,7 +58,10 @@ interface IHomora {
             uint collateralSize
         );
     function getPositionDebts(uint positionId) external view
-        returns (address[] memory tokens, uint[] memory debts);
+        returns (
+            address[] memory tokens,
+            uint[] memory debts
+        );
     function getCollateralETHValue(uint positionId) external view returns (uint);
     function getBorrowETHValue(uint positionId) external view returns (uint);
 }
@@ -123,12 +126,15 @@ interface IMerkleClaim {
  *  If the collateral factor move away from the ideal target, the strategy won't take on more debt from alpha
  *  homora when adding assets to the position.
  */
-contract AHv2Farmer is BaseStrategy, Constants {
+contract AHv2Farmer is BaseStrategy {
     using SafeERC20 for IERC20;
 
+    // Base constants
+    uint256 public constant DEFAULT_DECIMALS_FACTOR = uint256(10)**18;
+    uint256 public constant PERCENTAGE_DECIMAL_FACTOR = uint256(10)**4;
     // collateral constants - The collateral ratio is calculated by using
-	// the homoraBank to establish the eth value of the debts vs the eth value
-	// of the collateral.
+    // the homoraBank to establish the eth value of the debts vs the eth value
+    // of the collateral.
     // !!!Change these to constant values - these are left as non constant for testing purposes!!!
     int256 public targetCollateralRatio = 7950; // ideal collateral ratio
     int256 public collateralThreshold = 8900; // max collateral raio
@@ -142,7 +148,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
     // Uni or Sushi swap router
     address public immutable uniSwapRouter;
     // comment out if uniSwap spell is used
-    address public constant sushi = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    address public constant sushi = address(0x6B3595068778DD592e39A122f4f5a5cF09C90fE2);
     address public constant homoraBank = address(0xba5eBAf3fc1Fcca67147050Bf80462393814E54B);
     address public constant masterChef = address(0xc2EdaD668740f1aA35E4D8f227fB8E17dcA888Cd);
     address public constant wMasterChef = address(0xA2caEa05fF7B98f10Ad5ddc837F15905f33FEb60);
@@ -159,7 +165,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
     uint256 public minWant;
     uint256 public constant minEthToSell = 5 * 1E17;
     // comment out if uniSwap spell is used
-    uint256 public constant minGovToSell = 10 * 1E18;
+    uint256 public constant minSushiToSell = 10 * 1E18;
 
     // TODO add events to functions
     event LogNewPositionOpened(uint256 positionId, uint256[] price, uint256 collateralSize, uint256[] debts);
@@ -177,8 +183,6 @@ contract AHv2Farmer is BaseStrategy, Constants {
 
     struct positionData {
         uint256[] wantClose; // eth value of position when closed [want => eth]
-        uint256[] ethClose; // eth amount sold at close [eth => want]
-        uint256[] sushiClose; // sushi tokens sold at close [sushi => want]
         uint256 totalClose; // total value of position on close
         uint256[] wantOpen; // eth value of position when opened [want => eth]
         address collToken; // collateral token 
@@ -215,10 +219,10 @@ contract AHv2Farmer is BaseStrategy, Constants {
 
     // function headers for generating signatures for encoding function calls
     // AHv2 homorabank uses encoded spell function calls in order to cast spells
-    string sushiOpen = 'addLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256),uint256)';
-    string sushiClose = 'removeLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256))';
+    string constant sushiOpen = 'addLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256),uint256)';
+    string constant sushiClose = 'removeLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256))';
     // function for selling eth for want (uniswap router)
-    string ethForTokens = 'swapExactETHForTokens(uint256,address[],address,uint256)';
+    string constant ethForTokens = 'swapExactETHForTokens(uint256,address[],address,uint256)';
 
     // poolId for masterchef - can be commented out for non sushi spells
     uint256 immutable poolId;
@@ -262,7 +266,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
      * @notice set minimum want required to adjust position 
      * @param _minWant minimum amount of want
      */
-    function setMinWant(uint256 _minWant) external onlyAuthorized {
+    function setMinWant(uint256 _minWant) external onlyOwner {
         minWant = _minWant;
         emit LogNewMinWantSet(_minWant);
     }
@@ -290,9 +294,10 @@ contract AHv2Farmer is BaseStrategy, Constants {
     /*
      * @notice Estimate amount of sushi tokens that will be claimed if position is closed
      */
-    function pendingSushi() public view returns (uint256) {
-        uint256 _positionId = activePosition;
-        require(_positionId != 0);
+    function pendingSushi(uint256 _positionId) public view returns (uint256) {
+        if (_positionId == 0) {
+            return 0;
+        }
         IWMasterChef wChef = IWMasterChef(wMasterChef);
         uint256 _collId = positions[activePosition].collId;
         // get balance of collateral
@@ -300,23 +305,24 @@ contract AHv2Farmer is BaseStrategy, Constants {
         uint256 amount =  positions[activePosition].collateral;
         (uint256 pid, uint256 stSushiPerShare) = wChef.decodeId(_collId);
         (, , , uint256 enSushiPerShare) = IMasterChef(masterChef).poolInfo(pid);
-        uint stSushi = (stSushiPerShare * amount - 1) / 1e12;
-        uint enSushi = enSushiPerShare * amount / 1e12;
+        uint256 stSushi = (stSushiPerShare * amount - 1) / 1e12;
+        uint256 enSushi = enSushiPerShare * amount / 1e12;
         if (enSushi > stSushi) {
             return enSushi - stSushi;
         }
         return 0;
     }
 
+
     /*
      * @notice Estimate amount of sushi tokens that will be claimed if position is closed
      */
-    function valueOfSushi() internal view returns (uint256) {
+    function valueOfSushi(uint256 _positionId, uint256 balance) internal view returns (uint256) {
         address[] memory path = new address[](2);
         path[0] = sushi;
         path[1] = address(want);
 
-        uint256 estimatedSushi = pendingSushi();
+        uint256 estimatedSushi = pendingSushi(_positionId) + balance;
         if (estimatedSushi > 0 ) {
             uint256[] memory sushiWantValue = uniPrice(estimatedSushi, sushi);
             return sushiWantValue[1];
@@ -366,7 +372,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
         uint256 _positionId,
         uint256[] memory amounts,
         uint256 collateral,
-        uint256 borrow,
+        bool borrow,
         bool withdraw
     ) internal {
         // adjust by removing
@@ -388,81 +394,66 @@ contract AHv2Farmer is BaseStrategy, Constants {
             // we want to preserve the swap amount for when we update the position data
             //  create a new array and replace the borrow amount if the actual borrow value
             uint256[] memory _amounts = amounts;
-            _amounts[1] = borrow;
-            Amounts memory amt = formatOpen(amounts);
+            
+            Amounts memory amt = (borrow) ? formatOpen(amounts, true) : formatOpen(amounts, false);
             IHomora(homoraBank).execute(
-                    _positionId,
-                    spell,
-                    abi.encodeWithSignature(sushiOpen, address(want), weth, amt, poolId)
+                _positionId,
+                spell,
+                abi.encodeWithSignature(sushiOpen, address(want), weth, amt, poolId)
             );
         }
         // update the position data
-        adjustPositionData(_positionId, amounts, withdraw);
+        setPositionData(_positionId, amounts, false, withdraw);
     }
 
     /*
      * @notice Open a new AHv2 position with market neutral leverage
      * @param amount amount of want to provide to prosition
      */
-    function openPosition(uint256 amount) internal onlyAuthorized {
-        uint256[] memory amounts = uniPrice(amount, address(want));
-        Amounts memory amt = formatOpen(amounts);
-        IHomora(homoraBank).execute(
+    function openPosition(uint256 amount) internal {
+        (uint256[] memory amounts, ) = calcSingleSidedLiq(amount, false);
+        Amounts memory amt = formatOpen(amounts, true);
+        uint256 positionId = IHomora(homoraBank).execute(
                 0,
                 spell,
                 abi.encodeWithSignature(sushiOpen, address(want), weth, amt, poolId)
         );
-        createPositionData(IHomora(homoraBank).nextPositionId() - 1, amounts);
+        setPositionData(positionId, amounts, true, false);
     }
     
     /*
-     * @notice update the position data for indicated position
-     * @param _positionId id of position
-     * @param amounts eth price of want of position [want => eth]
-     * @param withdraw if the adjustment removed or added to the position
-     */
-    function adjustPositionData(uint256 _positionId, uint256[] memory amounts, bool withdraw) internal {
-        positionData storage pos = positions[_positionId];
-        // If we added to the position, ensure that that we change
-        // the position price for when we check for imperanent loss
-        if (!withdraw) {
-            // previous position price
-            uint256[] memory _openPrice = pos.wantOpen;
-            _openPrice[0] += amounts[0];
-            _openPrice[1] += amounts[1];
-            pos.wantOpen = _openPrice;
-        }
-        // get new position data
-        (, , , uint256 collateralSize) = IHomora(homoraBank).getPositionInfo(_positionId);
-        (, uint[] memory debts) = IHomora(homoraBank).getPositionDebts(_positionId);
-        pos.collateral = collateralSize;
-        pos.debt = debts;
-        emit LogPositionAdjusted(_positionId, amounts, collateralSize, debts, withdraw);
-    }
-
-    /*
-     * @notice Create the position data for indicated position
+     * @notice Create or update the position data for indicated position
      * @param _positionId id of position
      * @param openPrice eth price of want of position [want => eth]
      */
-    function createPositionData(uint256 _positionId, uint256[] memory openPrice) internal {
-        positionData storage pos = positions[_positionId];
-        if (activePosition == 0) {
-            activePosition = _positionId;
-        }
-        
+    function setPositionData(uint256 _positionId, uint256[] memory amounts, bool newPosition, bool withdraw) internal {
         // get position data
         (, address collToken, uint256 collId, uint256 collateralSize) = IHomora(homoraBank).getPositionInfo(_positionId);
         (address[] memory tokens, uint[] memory debts) = IHomora(homoraBank).getPositionDebts(_positionId);
 
-        pos.active = true;
-        pos.debtTokens = tokens;
-        pos.collToken = collToken;
-        pos.wantOpen = openPrice;
-        pos.collId = collId;
-        pos.collateral = collateralSize;
-        pos.debt = debts;
-        emit LogNewPositionOpened(_positionId, openPrice, collateralSize, debts);
+        positionData storage pos = positions[_positionId];
+        if (newPosition) {
+            activePosition = _positionId;
+            pos.active = true;
+            pos.debtTokens = tokens;
+            pos.collToken = collToken;
+            pos.wantOpen = amounts;
+            pos.collId = collId;
+            pos.collateral = collateralSize;
+            pos.debt = debts;
+            emit LogNewPositionOpened(_positionId, amounts, collateralSize, debts);
+        } else {
+            if (!withdraw) {
+                // previous position price
+                uint256[] memory _openPrice = pos.wantOpen;
+                _openPrice[0] += amounts[0];
+                _openPrice[1] += amounts[1];
+                pos.wantOpen = _openPrice;
+            }
+            pos.collateral = collateralSize;
+            pos.debt = debts;
+            emit LogPositionAdjusted(_positionId, amounts, collateralSize, debts, withdraw);
+        }
     }
 
     /*
@@ -497,78 +488,77 @@ contract AHv2Farmer is BaseStrategy, Constants {
         );
         // Do not sell after closing down the position, eth/sushi are sold during
         //  the early stages for the harvest flow (see prepareReturn)
-        // uint256[] memory _ethClose = sellEth();
-        // sell excess sushi - comment out if uniSwap spell is used
-        // uint256[] memory _sushiClose = sellSushi();
         // total amount of want retrieved from position
         wantBal = want.balanceOf(address(this)) - wantBal;
         positionData storage pos = positions[_positionId];
         pos.active = false;
-        // pos.ethClose = _ethClose;
-        // comment out if uniSwap spell is used
-        // pos.sushiClose = _sushiClose;
         pos.totalClose = wantBal;
         uint256[] memory _wantClose = uniPrice(pos.wantOpen[0], address(want));
         pos.wantClose = _wantClose;
         activePosition = 0;
-        emit LogPositionClosed(_positionId, wantBal, _wantClose); //, _ethClose[1], _sushiClose[1]);
+        emit LogPositionClosed(_positionId, wantBal, _wantClose);
     }
 
     /*
      * @notice sell the contracts eth for want if there enough to justify the sell
      */
-    function sellEth() internal returns (uint256[] memory) {
+    function sellEth(bool useMinThreshold) internal returns (uint256[] memory) {
         uint256 balance = address(this).balance;
 
         // check if we have enough eth to sell
-        if (balance >= minEthToSell) {
-            address[] memory path = new address[](2);
-            path[0] = weth;
-            path[1] = address(want);
+        if (balance == 0) return new uint256[](2);
+        else if (useMinThreshold && (balance < minEthToSell)) return new uint256[](2);
+        address[] memory path = new address[](2);
+        path[0] = weth;
+        path[1] = address(want);
 
-            uint256[] memory amounts = uniPrice(balance, weth);
-            // Use a call to the uniswap router contract to swap exact eth for want
-            // note, minwant could be set to 0 here as it doesnt matter, this call
-            // cannot prevent any frontrunning and the transaction should be executed
-            // using a private host.
-            (bool success, ) = uniSwapRouter.call{value: balance}(
-                abi.encodeWithSignature(ethForTokens, 0, path, address(this), block.timestamp)
-            );
-            require(success);
-            emit LogEthSold(amounts);
-            return amounts;
-        } 
-        return new uint256[](2);
+        uint256[] memory amounts = uniPrice(balance, weth);
+        // Use a call to the uniswap router contract to swap exact eth for want
+        // note, minwant could be set to 0 here as it doesnt matter, this call
+        // cannot prevent any frontrunning and the transaction should be executed
+        // using a private host.
+        (bool success, ) = uniSwapRouter.call{value: balance}(
+            abi.encodeWithSignature(ethForTokens, 0, path, address(this), block.timestamp)
+        );
+        require(success);
+        emit LogEthSold(amounts);
+        return amounts;
+        
     }
 
     /*
      * @notice sell the contracts sushi for want if there enough to justify the sell - can remove this method if uni swap spell
      */
-    function sellSushi() internal returns (uint256[] memory) {
+    function sellSushi(bool useMinThreshold) internal returns (uint256[] memory) {
         uint256 balance = IERC20(sushi).balanceOf(address(this));
-        if (balance >= minGovToSell) {
-            address[] memory path = new address[](2);
-            path[0] = sushi;
-            path[1] = address(want);
+        if (balance == 0) return new uint256[](2);
+        else if (useMinThreshold && (balance < minSushiToSell)) return new uint256[](2);
+        address[] memory path = new address[](2);
+        path[0] = sushi;
+        path[1] = address(want);
 
-            uint256[] memory amounts = uniPrice(balance, sushi);
-            IUni(uniSwapRouter).swapExactTokensForTokens(amounts[0], amounts[1], path, address(this), block.timestamp);
-            emit LogSushiSold(amounts);
-            return amounts;
-        }
-        return new uint256[](2);
+        uint256[] memory amounts = uniPrice(balance, sushi);
+        IUni(uniSwapRouter).swapExactTokensForTokens(amounts[0], amounts[1], path, address(this), block.timestamp);
+        emit LogSushiSold(amounts);
+        return amounts;
     }
 
     /*
      * @notice format the open position input struct
      * @param amounts amounts for position
      */
-    function formatOpen(uint256[] memory amounts) internal pure returns (Amounts memory amt) {
+    function formatOpen(uint256[] memory amounts, bool borrow) internal pure returns (Amounts memory amt) {
         amt.aUser = amounts[0];
-        amt.bBorrow = amounts[1];
-        // apply AH base slippage (100 BP)
-        amt.aMin = amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
-        amt.bMin = amounts[1] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
+        if (borrow) {
+            amt.bBorrow = amounts[1];
+        } 
+        // apply 100 BP slippage
+        amt.aMin = 0;
+        amt.bMin = 0;
+        // Temp fix to handle adjust position without borrow - as these transactions are run behind a private node
+        //      or flashbot, so shouldnt impact anything to set minaAmount to 0
+        // amt.aMin = amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
+        // amt.bMin = amounts[1] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
     }
 
     /*
@@ -613,11 +603,11 @@ contract AHv2Farmer is BaseStrategy, Constants {
     function calcLpPosition(uint256 collateral) internal view returns (uint256[] memory) {
         (uint112 reserve0, uint112 reserve1, ) = IUniPool(pool).getReserves();
         uint256 poolBalance = IUniPool(pool).totalSupply();
-        uint256 share = collateral * PERCENTAGE_DECIMAL_FACTOR / poolBalance;
+        uint256 share = collateral * DEFAULT_DECIMALS_FACTOR / poolBalance;
         uint256[] memory lpPosition = new uint256[](2);
 
-        lpPosition[1] = uint256(reserve0) * share / PERCENTAGE_DECIMAL_FACTOR;
-        lpPosition[0] = uint256(reserve1) * share / PERCENTAGE_DECIMAL_FACTOR;
+        lpPosition[1] = uint256(reserve0) * share / DEFAULT_DECIMALS_FACTOR;
+        lpPosition[0] = uint256(reserve1) * share / DEFAULT_DECIMALS_FACTOR;
         return lpPosition;
     }
 
@@ -657,35 +647,33 @@ contract AHv2Farmer is BaseStrategy, Constants {
     }
 
     /*
-     * @notic Get the estimated total assets of this strategy in want.
+     * @notice Get the estimated total assets of this strategy in want.
      *      This method is only used to pull out debt if debt ratio has changed.
      * @param _positionId active position
      * @return Total assets in want this strategy has invested into underlying protocol
      */
     function _estimatedTotalAssets(uint256 _positionId) private view returns (uint256, uint256) {
         // get the value of the current position supplied by this strategy (total - borrowed)
+        uint256 sushiBalance = IERC20(sushi).balanceOf(address(this));
         uint256[] memory _valueOfEth = uniPrice(address(this).balance, weth);
         uint256 _reserve = want.balanceOf(address(this));
         
-        return (_reserve + _calcEstimatedWant(_positionId) + valueOfSushi() + _valueOfEth[1], _reserve);
+        if (_positionId == 0) return (valueOfSushi(_positionId, sushiBalance) + _valueOfEth[1] + _reserve, _reserve);
+        return (_reserve + _calcEstimatedWant(_positionId) + valueOfSushi(_positionId, sushiBalance) + _valueOfEth[1], _reserve);
     }
 
     /*
      * @notice expected profit/loss of the strategy
      */
     function expectedReturn() external view returns (int256) {
-        uint256 estimateAssets = estimatedTotalAssets();
-
-        uint256 debt = vault.strategies(address(this)).totalDebt;
-        if (debt > estimateAssets) {
-            return 0;
-        } else {
-            return int256(estimateAssets) - int256(debt);
-        }
+        return int256(estimatedTotalAssets()) - int256(vault.strategyDebt());
     }
 
     /*
      * @notice get collateral and borrowed eth value of position
+     * @dev This value is based on Alpha homoras calculation which can
+     *     be found in the homoraBank and homora Oracle (0xeed9cfb1e69792aaee0bf55f6af617853e9f29b8)
+     *     (tierTokenFactors). This value can range from 0 to > 10000, where 10000 indicates liquidation
      */
     function getCollateralFactor(uint256 _positionId) private view returns (int256) {
         uint256 deposit = IHomora(homoraBank).getCollateralETHValue(_positionId);
@@ -708,11 +696,10 @@ contract AHv2Farmer is BaseStrategy, Constants {
     {
         uint256 _positionId = activePosition;
         if (_positionId == 0) {
-            //no active position
-            uint256 _wantBalance = want.balanceOf(address(this));
             // only try to sell if there is no active position
-            sellSushi();
-            sellEth();
+            sellEth(true);
+            sellSushi(true);
+            uint256 _wantBalance = want.balanceOf(address(this));
             _debtPayment = Math.min(_wantBalance, _debtOutstanding); 
             return (_profit, _loss, _debtPayment);
         }
@@ -748,7 +735,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
             return false;
         }
         uint256[] memory openPrice = positions[activePosition].wantOpen;
-        uint256[] memory currentPrice = uniPrice(openPrice[0], address(want));
+        (uint256[] memory currentPrice, ) = calcSingleSidedLiq(openPrice[0], false);
         uint256 difference;
         if (openPrice[1] < currentPrice[1]) {
             difference = (currentPrice[1] * PERCENTAGE_DECIMAL_FACTOR / openPrice[1]) - PERCENTAGE_DECIMAL_FACTOR;
@@ -815,17 +802,27 @@ contract AHv2Farmer is BaseStrategy, Constants {
     }
 
     /*
-     * @notice calculate the lp value of the the want/eth amount:
-     *      formula is used by unisap router:
+     * @notice Calculate how much eth needs to be provided for a set amount of want
+     *      when adding liquidity - This is used to estimate how much to borrow from AH.
+     *      We need to get amtA * resB - amtB * resA = 0 to solve the AH optimal swap
+     *      formula for 0, so we use same as uniswap rouer quote function:
+     *          amountA * reserveB / reserveA
+     * @param amount amount of want
+     * @param withdraw we need to calculate the liquidity amount if withdrawing
+     * @dev We uesr the uniswap formula to calculate liquidity
      *          lp = Math.min(input0 * poolBalance / reserve0, input1 * poolBalance / reserve1)
-     * @param input liquidity amount [want, eth] 
      */
-    function calcLpAmount(uint256[] memory input) internal view returns (uint256) {
+    function calcSingleSidedLiq(uint256 amount, bool withdraw) internal view returns (uint256[] memory, uint256) {
         (uint112 reserve0, uint112 reserve1, ) = IUniPool(pool).getReserves();
-        uint256 poolBalance = IUniPool(pool).totalSupply();
-
-        uint256 liquidity = Math.min(input[0] * poolBalance / reserve0, input[1] * poolBalance / reserve1);
-        return liquidity;
+        uint256[] memory amt = new uint256[](2);
+        amt[1] = amount * reserve1 / reserve0;
+        amt[0] = amt[1] * reserve0 / reserve1;
+        if (withdraw) {
+            uint256 poolBalance = IUniPool(pool).totalSupply();
+            uint256 liquidity = Math.min(amt[0] * poolBalance / reserve0, amt[1] * poolBalance / reserve1);
+            return (amt, liquidity);
+        }
+        return (amt, 0);
     }
 
     /*
@@ -835,9 +832,8 @@ contract AHv2Farmer is BaseStrategy, Constants {
      *      this operation also resets the position to market neutral
      */
     function _withdrawSome(uint256 _positionId, uint256 _amount) internal {
-        uint256[] memory repay = uniPrice(_amount, address(want));
-        uint256 lpAmount = calcLpAmount(repay);
-        _adjustPosition(_positionId, repay, lpAmount, 0, true);
+        (uint256[] memory repay, uint256 lpAmount) = calcSingleSidedLiq(_amount, true);
+        _adjustPosition(_positionId, repay, lpAmount, false, true);
     }
 
     /*
@@ -853,21 +849,20 @@ contract AHv2Farmer is BaseStrategy, Constants {
         uint256 _loss = 0;
         // want in contract + want value of position based of eth value of position (total - borrowed)
         uint256 _positionId = activePosition;
-        uint256 _balance = want.balanceOf(address(this));
-        uint256 assets = _calcEstimatedWant(_positionId);
 
-        uint256 debtOutstanding = vault.debtOutstanding();
+        (uint256 assets, uint256 _balance) = _estimatedTotalAssets(_positionId);
+
+        uint256 debt = vault.strategyDebt();
 
         // cannot repay the entire debt
-        if(debtOutstanding > assets + _balance) {
-            // Sell all of our other assets if we hold any
-            sellEth();
-            sellSushi();
-            _balance = want.balanceOf(address(this));
-            // if we still cant repay we report a loss
-            if(debtOutstanding > assets + _balance) {
-                _loss = debtOutstanding - (assets + _balance);
+        if(debt > assets) {
+            _loss = debt - assets;
+            if (_loss >= _amountNeeded) {
+                _loss = _amountNeeded;
+                _amountFreed = 0;
+                return (_amountFreed, _loss);
             }
+            _amountNeeded = _amountNeeded - _loss;
         }
 
         // if the asset value of our position is less than what we need to withdraw, close the position
@@ -875,12 +870,14 @@ contract AHv2Farmer is BaseStrategy, Constants {
             if (activePosition != 0) {
                 closePosition(_positionId, false);
             }
+            sellEth(false);
+            sellSushi(false);
             _amountFreed = Math.min(_amountNeeded, want.balanceOf(address(this)));
         } else {
             // do we have enough assets in strategy to repay?
+            int256 changeFactor = getCollateralFactor(_positionId) - targetCollateralRatio;
             if (_balance < _amountNeeded) {
                 uint256 remainder;
-                int256 changeFactor = getCollateralFactor(_positionId) - targetCollateralRatio;
                 if (changeFactor > 500) {
                     closePosition(_positionId, false);
                     _amountFreed = Math.min(_amountNeeded, want.balanceOf(address(this)));
@@ -896,8 +893,8 @@ contract AHv2Farmer is BaseStrategy, Constants {
                     remainder = _amountNeeded - _balance;
                 }
 
-                // if we want to remove 90% or more of the position, just close it
-                if (remainder * PERCENTAGE_DECIMAL_FACTOR / assets >= 9000) {
+                // if we want to remove 80% or more of the position, just close it
+                if (remainder * PERCENTAGE_DECIMAL_FACTOR / assets >= 8000) {
                     closePosition(_positionId, false);
                 } else {
                     _withdrawSome(_positionId, remainder);
@@ -945,18 +942,18 @@ contract AHv2Farmer is BaseStrategy, Constants {
             if (_positionId == 0) {
                 openPosition(_wantBal - reserves);
             } else {
-                uint256[] memory newPosition = uniPrice(_wantBal - reserves, address(want));
-                uint256 borrow = newPosition[1];
                 int256 changeFactor = getCollateralFactor(_positionId) - targetCollateralRatio;
-                if (changeFactor > 0) {
-                    // collateralFactor is real bad close the position
-                    if (changeFactor > collateralThreshold - targetCollateralRatio) {
-                        closePosition(_positionId, false);
-                        return;
-                    // collateral factor is bad (5% above target), dont loan any more assets
-                    } else if (changeFactor > 500) {
-                        borrow = 0;
-                    }
+                // collateralFactor is real bad close the position
+                if (changeFactor > collateralThreshold - targetCollateralRatio) {
+                    closePosition(_positionId, false);
+                    return;
+                // collateral factor is bad (5% above target), dont loan any more assets
+                } else if (changeFactor > 500) {
+                    // we expect to swap out half of the want to eth
+                    (uint256[] memory newPosition, ) = calcSingleSidedLiq((_wantBal - reserves) / 2, false);
+                    newPosition[0] = _wantBal - reserves;
+                    _adjustPosition(_positionId, newPosition, 0, false, false);
+                } else {
                     // TODO logic to lower the colateral ratio
                     // When adding to the position we will try to stabilize the collateralization ratio, this
                     //  will be possible if we owe more than originally, as we just need to borrow less ETH
@@ -969,8 +966,9 @@ contract AHv2Farmer is BaseStrategy, Constants {
                     //     uint256[] memory oldPrice = positions[_positionId].openWant;
                     //     uint256 newPercentage = (newPosition[0] * PERCENTAGE_DECIMAL_FACTOR / oldPrice[0])
                     // }
+                    (uint256[] memory newPosition, ) = calcSingleSidedLiq(_wantBal - reserves, false);
+                    _adjustPosition(_positionId, newPosition, 0, true, false);
                 }
-                _adjustPosition(_positionId, newPosition, 0, borrow, false);
             }
         }
     }
@@ -984,7 +982,13 @@ contract AHv2Farmer is BaseStrategy, Constants {
         return protected;
     }
 
-    function tendTrigger(uint256 callCost) public view override returns (bool) {}
+    function tendTrigger(uint256 callCost) public view override returns (bool) {
+        if (activePosition == 0) {
+            if (want.balanceOf(address(this)) >= minWant) return true;
+        }
+        if (volatilityCheck()) return true;
+        if (getCollateralFactor(activePosition) > collateralThreshold) return true;
+    }
 
     /*
      * @notice prepare this strategy for migrating to a new
@@ -992,16 +996,7 @@ contract AHv2Farmer is BaseStrategy, Constants {
      */
     function prepareMigration(address _newStrategy) internal override {
         require(activePosition == 0, 'prepareMigration: active position');
-        sellEth();
-        uint256 ethBalance = address(this).balance;
-        if (ethBalance > 0) {
-            (bool success, ) = _newStrategy.call{value: ethBalance}("");
-            require(success);
-        }
-        sellSushi();
-        uint256 sushiBalance = address(this).balance;
-        if (sushiBalance > 0) {
-            IERC20(sushi).safeTransfer(_newStrategy, sushiBalance);
-        }
+        sellEth(false);
+        sellSushi(false);
     }
 }
