@@ -372,7 +372,7 @@ contract AHv2Farmer is BaseStrategy {
         uint256 _positionId,
         uint256[] memory amounts,
         uint256 collateral,
-        uint256 borrow,
+        bool borrow,
         bool withdraw
     ) internal {
         // adjust by removing
@@ -394,12 +394,12 @@ contract AHv2Farmer is BaseStrategy {
             // we want to preserve the swap amount for when we update the position data
             //  create a new array and replace the borrow amount if the actual borrow value
             uint256[] memory _amounts = amounts;
-            _amounts[1] = borrow;
-            Amounts memory amt = formatOpen(amounts);
+            
+            Amounts memory amt = (borrow) ? formatOpen(amounts, true) : formatOpen(amounts, false);
             IHomora(homoraBank).execute(
-                    _positionId,
-                    spell,
-                    abi.encodeWithSignature(sushiOpen, address(want), weth, amt, poolId)
+                _positionId,
+                spell,
+                abi.encodeWithSignature(sushiOpen, address(want), weth, amt, poolId)
             );
         }
         // update the position data
@@ -412,7 +412,7 @@ contract AHv2Farmer is BaseStrategy {
      */
     function openPosition(uint256 amount) internal {
         (uint256[] memory amounts, ) = calcSingleSidedLiq(amount, false);
-        Amounts memory amt = formatOpen(amounts);
+        Amounts memory amt = formatOpen(amounts, true);
         uint256 positionId = IHomora(homoraBank).execute(
                 0,
                 spell,
@@ -547,12 +547,14 @@ contract AHv2Farmer is BaseStrategy {
      * @notice format the open position input struct
      * @param amounts amounts for position
      */
-    function formatOpen(uint256[] memory amounts) internal pure returns (Amounts memory amt) {
+    function formatOpen(uint256[] memory amounts, bool borrow) internal pure returns (Amounts memory amt) {
         amt.aUser = amounts[0];
-        amt.bBorrow = amounts[1];
+        if (borrow) {
+            amt.bBorrow = amounts[1];
+        } 
         // apply 100 BP slippage
-        amt.aMin = amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
-        amt.bMin = amounts[1] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
+        amt.aMin = 0;//amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
+        amt.bMin = 0;//amounts[1] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
     }
 
     /*
@@ -641,7 +643,7 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
-     * @notic Get the estimated total assets of this strategy in want.
+     * @notice Get the estimated total assets of this strategy in want.
      *      This method is only used to pull out debt if debt ratio has changed.
      * @param _positionId active position
      * @return Total assets in want this strategy has invested into underlying protocol
@@ -827,7 +829,7 @@ contract AHv2Farmer is BaseStrategy {
      */
     function _withdrawSome(uint256 _positionId, uint256 _amount) internal {
         (uint256[] memory repay, uint256 lpAmount) = calcSingleSidedLiq(_amount, true);
-        _adjustPosition(_positionId, repay, lpAmount, 0, true);
+        _adjustPosition(_positionId, repay, lpAmount, false, true);
     }
 
     /*
@@ -936,18 +938,18 @@ contract AHv2Farmer is BaseStrategy {
             if (_positionId == 0) {
                 openPosition(_wantBal - reserves);
             } else {
-                (uint256[] memory newPosition, ) = calcSingleSidedLiq(_wantBal - reserves, false);
-                uint256 borrow = newPosition[1];
                 int256 changeFactor = getCollateralFactor(_positionId) - targetCollateralRatio;
-                if (changeFactor > 0) {
-                    // collateralFactor is real bad close the position
-                    if (changeFactor > collateralThreshold - targetCollateralRatio) {
-                        closePosition(_positionId, false);
-                        return;
-                    // collateral factor is bad (5% above target), dont loan any more assets
-                    } else if (changeFactor > 500) {
-                        borrow = 0;
-                    }
+                // collateralFactor is real bad close the position
+                if (changeFactor > collateralThreshold - targetCollateralRatio) {
+                    closePosition(_positionId, false);
+                    return;
+                // collateral factor is bad (5% above target), dont loan any more assets
+                } else if (changeFactor > 500) {
+                    // we expect to swap out half of the want to eth
+                    (uint256[] memory newPosition, ) = calcSingleSidedLiq((_wantBal - reserves) / 2, false);
+                    newPosition[0] = _wantBal - reserves;
+                    _adjustPosition(_positionId, newPosition, 0, false, false);
+                } else {
                     // TODO logic to lower the colateral ratio
                     // When adding to the position we will try to stabilize the collateralization ratio, this
                     //  will be possible if we owe more than originally, as we just need to borrow less ETH
@@ -960,8 +962,9 @@ contract AHv2Farmer is BaseStrategy {
                     //     uint256[] memory oldPrice = positions[_positionId].openWant;
                     //     uint256 newPercentage = (newPosition[0] * PERCENTAGE_DECIMAL_FACTOR / oldPrice[0])
                     // }
+                    (uint256[] memory newPosition, ) = calcSingleSidedLiq(_wantBal - reserves, false);
+                    _adjustPosition(_positionId, newPosition, 0, true, false);
                 }
-                _adjustPosition(_positionId, newPosition, 0, borrow, false);
             }
         }
     }
