@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.3;
+pragma solidity 0.8.4;
 
 import "../common/Constants.sol";
 import "../interfaces/IBuoy.sol";
@@ -18,6 +18,8 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 contract MockController is Constants, IController, IWithdrawHandler, IDepositHandler {
     using SafeERC20 for IERC20;
 
+    uint256 public constant N_COINS = 3;
+    uint256 internal constant CHAINLINK_PRICE_DECIMAL_FACTOR = uint256(10)**8;
     uint256 pricePerShare = CHAINLINK_PRICE_DECIMAL_FACTOR;
     uint256 _gTokenTotalAssets;
     uint256 utilisationRatioLimit;
