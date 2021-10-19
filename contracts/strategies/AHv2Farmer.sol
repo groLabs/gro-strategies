@@ -598,13 +598,13 @@ contract AHv2Farmer is BaseStrategy {
      *      which becomes simpler if the eth position comes first.
      */
     function calcLpPosition(uint256 collateral) internal view returns (uint256[] memory) {
-        (uint112 reserve0, uint112 reserve1, ) = IUniPool(pool).getReserves();
+        (uint112 resA, uint112 resB, ) = IUniPool(pool).getReserves();
         uint256 poolBalance = IUniPool(pool).totalSupply();
-        uint256 share = collateral * DEFAULT_DECIMALS_FACTOR / poolBalance;
         uint256[] memory lpPosition = new uint256[](2);
 
-        lpPosition[1] = uint256(reserve0) * share / DEFAULT_DECIMALS_FACTOR;
-        lpPosition[0] = uint256(reserve1) * share / DEFAULT_DECIMALS_FACTOR;
+        lpPosition[1] = (collateral * uint256(resA) * DEFAULT_DECIMALS_FACTOR / poolBalance) / DEFAULT_DECIMALS_FACTOR;
+        lpPosition[0] = (collateral * uint256(resB) * DEFAULT_DECIMALS_FACTOR / poolBalance) / DEFAULT_DECIMALS_FACTOR;
+
         return lpPosition;
     }
 
