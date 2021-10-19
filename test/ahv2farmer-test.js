@@ -167,7 +167,7 @@ contract('Alpha homora test', function (accounts) {
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         // We are the owner of the position
         assert.strictEqual(alphaData['owner'], primaryStrategy.address);
-        // TOOD check size of position
+        return expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.is.a.bignumber.gt(toBN("0"));
     })
 
     // Check that we can add assets to a position
@@ -349,8 +349,7 @@ contract('Alpha homora test', function (accounts) {
         return assert.isBelow(Number(alphaDataRemove['collateralSize']), Number(alphaData['collateralSize']));
     })
 
-    // if vault debts to the strategy increases, the strategy should try to unwind the position to
-      // pay these back
+    // if vault debts to the strategy increases, the strategy should try to unwind the position to pay these back
     it('Should be posible to pay back debt to the vault', async () => {
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
@@ -599,12 +598,12 @@ contract('Alpha homora test', function (accounts) {
         await masterChef.methods.updatePool(2).send({from: governance});
         await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.gt(preSwap);
         // harvest gains
-        // await daiAdaptor.strategyHarvest(0, {from: governance});
+        await daiAdaptor.strategyHarvest(0, {from: governance});
         const alphaDataFin = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtFin = await homoraBank.methods.getPositionDebts(position).call()
 
-        // expectedReturn should be back at 0 (but report profit)
-        await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.gt(toBN(0));
+        // expectedReturn should be back at 0
+        await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(toBN(0));
 
         return revertChain(sid);
     })

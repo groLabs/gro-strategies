@@ -167,7 +167,6 @@ contract AHv2Farmer is BaseStrategy {
     // comment out if uniSwap spell is used
     uint256 public constant minSushiToSell = 10 * 1E18;
 
-    // TODO add events to functions
     event LogNewPositionOpened(uint256 positionId, uint256[] price, uint256 collateralSize, uint256[] debts);
     event LogPositionClosed(uint256 positionId, uint256 wantRecieved, uint256[] price);
     event LogPositionAdjusted(uint256 positionId, uint256[] amounts, uint256 collateralSize, uint256[] debts, bool withdrawal);
@@ -391,10 +390,6 @@ contract AHv2Farmer is BaseStrategy {
             );
         // adjust by adding
         } else {
-            // we want to preserve the swap amount for when we update the position data
-            //  create a new array and replace the borrow amount if the actual borrow value
-            uint256[] memory _amounts = amounts;
-            
             Amounts memory amt = (borrow) ? formatOpen(amounts, true) : formatOpen(amounts, false);
             IHomora(homoraBank).execute(
                 _positionId,
@@ -549,14 +544,16 @@ contract AHv2Farmer is BaseStrategy {
      */
     function formatOpen(uint256[] memory amounts, bool borrow) internal pure returns (Amounts memory amt) {
         amt.aUser = amounts[0];
+        // Unless we borrow we only supply a value for the want we provide
         if (borrow) {
             amt.bBorrow = amounts[1];
         } 
         // apply 100 BP slippage
+        // NOTE: Temp fix to handle adjust position without borrow 
+        //      - As these transactions are run behind a private node or flashbot, it shouldnt 
+        //      impact anything to set minaAmount to 0
         amt.aMin = 0;
         amt.bMin = 0;
-        // Temp fix to handle adjust position without borrow - as these transactions are run behind a private node
-        //      or flashbot, so shouldnt impact anything to set minaAmount to 0
         // amt.aMin = amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
         // amt.bMin = amounts[1] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
     }
@@ -826,19 +823,10 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
-     * @notice Remove part of the current position in order to repay debt or accomodate a withdrawal
-     * @param amount amount of want we want to withdraw
-     * @dev This is a gas costly operation, should not be atempted unless the amount being withdrawn warrants it,
-     *      this operation also resets the position to market neutral
-     */
-    function _withdrawSome(uint256 _positionId, uint256 _amount) internal {
-        (uint256[] memory repay, uint256 lpAmount) = calcSingleSidedLiq(_amount, true);
-        _adjustPosition(_positionId, repay, lpAmount, false, true);
-    }
-
-    /*
      * @notice partially removes or closes the current AH v2 position in order to repay a requested amount
      * @param _amountNeeded amount needed to be withdrawn from strategy
+     * @dev This function will atempt to remove part of the current position in order to repay debt or accomodate a withdrawal,
+     *      This is a gas costly operation, should not be atempted unless the amount being withdrawn warrants it.
      */
     function liquidatePosition(uint256 _amountNeeded)
         internal
@@ -873,6 +861,7 @@ contract AHv2Farmer is BaseStrategy {
             sellEth(false);
             sellSushi(false);
             _amountFreed = Math.min(_amountNeeded, want.balanceOf(address(this)));
+            return (_amountFreed, _loss);
         } else {
             // do we have enough assets in strategy to repay?
             int256 changeFactor = getCollateralFactor(_positionId) - targetCollateralRatio;
@@ -897,7 +886,8 @@ contract AHv2Farmer is BaseStrategy {
                 if (remainder * PERCENTAGE_DECIMAL_FACTOR / assets >= 8000) {
                     closePosition(_positionId, false);
                 } else {
-                    _withdrawSome(_positionId, remainder);
+                    (uint256[] memory repay, uint256 lpAmount) = calcSingleSidedLiq(remainder, true);
+                    _adjustPosition(_positionId, repay, lpAmount, false, true);
                 }
 
                 // dont return more than was asked for
@@ -912,6 +902,9 @@ contract AHv2Farmer is BaseStrategy {
     /*
      * @notice adjust current position, repaying any debt
      * @param _debtOutstanding amount of outstanding debt the strategy holds
+     * @dev _debtOutstanding should always be 0 here, but we should handle the
+     *      eventuality that something goes wrong in the reporting, in which case
+     *      this strategy should act conservative and atempt to repay any outstanding amount
      */
     function adjustPosition(uint256 _debtOutstanding) internal override {
         //emergency exit is dealt with in liquidatePosition
@@ -930,12 +923,14 @@ contract AHv2Farmer is BaseStrategy {
             // just close the position if the collateralisation ratio is to high
             if (getCollateralFactor(_positionId) > collateralThreshold) {
                 closePosition(_positionId, false);
-            // otherwise withdraw some
+            // otherwise do a partial withdrawal
             } else {
-                _withdrawSome(_positionId, _debtOutstanding - _wantBal);
+                (uint256[] memory repay, uint256 lpAmount) = calcSingleSidedLiq(_debtOutstanding - _wantBal, true);
+                _adjustPosition(_positionId, repay, lpAmount, false, true);
             }
             return;
         }
+
         // check if the current want amount is large enough to justify opening/adding
         // to an existing position, else do nothing
         if (_wantBal > minWant + reserves) {
@@ -988,6 +983,7 @@ contract AHv2Farmer is BaseStrategy {
         }
         if (volatilityCheck()) return true;
         if (getCollateralFactor(activePosition) > collateralThreshold) return true;
+        return false;
     }
 
     /*
