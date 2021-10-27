@@ -113,8 +113,8 @@ contract AHv2Farmer is BaseStrategy {
     // the homoraBank to establish the eth value of the debts vs the eth value
     // of the collateral.
     // !!!Change these to constant values - these are left as non constant for testing purposes!!!
-    int256 public targetCollateralRatio = 7950; // ideal collateral ratio
-    int256 public collateralThreshold = 8900; // max collateral raio
+    uint256 public targetCollateralRatio = 7950; // ideal collateral ratio
+    uint256 public collateralThreshold = 8900; // max collateral raio
     // LP Pool token
     IUniPool public immutable pool;
     address public constant weth = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
@@ -629,10 +629,10 @@ contract AHv2Farmer is BaseStrategy {
      *     be found in the homoraBank and homora Oracle (0xeed9cfb1e69792aaee0bf55f6af617853e9f29b8)
      *     (tierTokenFactors). This value can range from 0 to > 10000, where 10000 indicates liquidation
      */
-    function _getCollateralFactor(uint256 _positionId) private view returns (int256) {
+    function _getCollateralFactor(uint256 _positionId) private view returns (uint256) {
         uint256 deposit = IHomora(homoraBank).getCollateralETHValue(_positionId);
         uint256 borrow =  IHomora(homoraBank).getBorrowETHValue(_positionId);
-        return int(borrow * PERCENTAGE_DECIMAL_FACTOR / deposit);
+        return borrow * PERCENTAGE_DECIMAL_FACTOR / deposit;
     }
 
     /*
@@ -816,7 +816,7 @@ contract AHv2Farmer is BaseStrategy {
             return (_amountFreed, _loss);
         } else {
             // do we have enough assets in strategy to repay?
-            int256 changeFactor = _getCollateralFactor(_positionId) - targetCollateralRatio;
+            int256 changeFactor = int256(_getCollateralFactor(_positionId)) - int256(targetCollateralRatio);
             if (_balance < _amountNeeded) {
                 uint256 remainder;
                 if (changeFactor > 500) {
@@ -889,9 +889,9 @@ contract AHv2Farmer is BaseStrategy {
             if (_positionId == 0) {
                 _openPosition(_wantBal - reserves);
             } else {
-                int256 changeFactor = _getCollateralFactor(_positionId) - targetCollateralRatio;
+                int256 changeFactor = int256(_getCollateralFactor(_positionId)) - int256(targetCollateralRatio);
                 // collateralFactor is real bad close the position
-                if (changeFactor > collateralThreshold - targetCollateralRatio) {
+                if (changeFactor > int256(collateralThreshold - targetCollateralRatio)) {
                     _closePosition(_positionId, false);
                     return;
                 // collateral factor is bad (5% above target), dont loan any more assets
