@@ -147,7 +147,7 @@ contract AHv2Farmer is BaseStrategy {
     uint256 public minWant;
     uint256 public constant minEthToSell = 0.5E18;
     // comment out if uniSwap spell is used
-    uint256 public constant minSushiToSell = 10E18;
+    uint256 public constant minSushiToSell = 1E18;
 
     event LogNewPositionOpened(uint256 positionId, uint256[] price, uint256 collateralSize, uint256[] debts);
     event LogPositionClosed(uint256 positionId, uint256 wantRecieved, uint256[] price);
@@ -282,6 +282,7 @@ contract AHv2Farmer is BaseStrategy {
         }
         uint256 _collId = positions[_positionId].collId;
         // get balance of collateral
+        // uint256 amount = wChef.balanceOf(homoraBank, _collId);
         uint256 amount =  positions[_positionId].collateral;
         (uint256 pid, uint256 stSushiPerShare) = wMasterChef.decodeId(_collId);
         (, , , uint256 enSushiPerShare) = IMasterChef(masterChef).poolInfo(pid);
@@ -361,10 +362,10 @@ contract AHv2Farmer is BaseStrategy {
     ) internal {
         // adjust by removing
         if (_withdraw) {
-            int256[] memory minAmounts = new int256[](2);
+            uint256[] memory minAmounts = new uint256[](2);
             // AHv2 std slippage = 100 BP
-            minAmounts[1] = int256(_amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR);
-            minAmounts[0] = int256(0);
+            minAmounts[1] = _amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
+            minAmounts[0] = 0;
 
             // minAmount we want to get out, collateral we will burn and amount we want to repay
             RepayAmounts memory amt = _formatClose(minAmounts, _collateral, _amounts[1]);
@@ -463,7 +464,7 @@ contract AHv2Farmer is BaseStrategy {
             // sensible operations like [::-1] or zip...
             amt = _formatClose(_calcAvailable(collateral, debts), collateral, 0);
         } else {
-            amt = _formatClose(new int256[](2), collateral, 0);
+            amt = _formatClose(new uint256[](2), collateral, 0);
         }
         uint256 wantBal = want.balanceOf(address(this));
         IHomora(homoraBank).execute(
@@ -557,26 +558,14 @@ contract AHv2Farmer is BaseStrategy {
      * @param _collateral collateral to remove from position
      * @param _repay amount to repay - default to max value if closing position
      */
-    function _formatClose(int256[] memory _expected, uint256 _collateral, uint256 _repay) internal pure returns (RepayAmounts memory amt) {
+    function _formatClose(uint256[] memory _expected, uint256 _collateral, uint256 _repay) internal pure returns (RepayAmounts memory amt) {
         _repay = (_repay == 0) ? REPAY : _repay;
         amt.lpTake = _collateral;
         amt.bRepay = _repay;
-        amt.aMin = uint256(_expected[1]);
-        amt.bMin = uint256(_expected[0]);
+        amt.aMin = _expected[1];
+        amt.bMin = _expected[0];
     }
 
-    /*
-     * @notice get start of swap path based in index
-     * @param _i 0 - want, 1 - weth
-     */
-    function _getPath(uint256 _i) private view returns (address) {
-        if (_i == 0) {
-            return address(want);
-        } else {
-            return weth;
-        }
-    }
-    
     /*
      * @notice calculate want and eth value of lp position
      *      value of lp is defined by (in uniswap routerv2):
@@ -750,32 +739,27 @@ contract AHv2Farmer is BaseStrategy {
      * @param _collateral lp value of position
      * @param _debts debts to repay (should always be eth)
      */
-    function _calcAvailable(uint256 _collateral, uint256[] memory _debts) private view returns (int256[] memory) {
+    function _calcAvailable(uint256 _collateral, uint256[] memory _debts) private view returns (uint256[] memory) {
         // get underlying value of lp postion [eth, want]
         uint256[] memory lpPosition = _calcLpPosition(_collateral);
-        int256[] memory expected = new int256[](2);
+        uint256[] memory expected = new uint256[](2);
 
-        for (uint256 i; i < 2; i++) {
-            // standrad AH exit applies 1% slippage to close position
-            uint256 positionWithSlippage = lpPosition[i] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
-            if (i < _debts.length) {
-                // repay eth debt
-                expected[i] = int256(positionWithSlippage) - int256(_debts[i]);
-            } else {
-                expected[i] = int256(positionWithSlippage);
-            }
+        // standrad AH exit applies 1% slippage to close position
+        lpPosition[0] = lpPosition[0] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
+        lpPosition[1] = lpPosition[1] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
+
+        // if the eth debt is greater than the positions eth value, we need to reduce the the expected want by the amount
+        // that will be used to repay the whole eth loan
+        if (lpPosition[0] < _debts[0]) {
+                uint256[] memory change = _uniPrice(_debts[0] - lpPosition[0], weth);
+                expected[1] = lpPosition[1] - change[1];
+                expected[0] = 0;
+        } else {
+            // repay eth debt
+            expected[0] = lpPosition[0] - _debts[0];
+            expected[1] = lpPosition[1];
         }
 
-        for (uint256 i; i < 2 ; i++) {
-            // if the eth return is negative, we need to reduce the the expected want by the amount
-            // that will be used to repay the whole eth loan
-            if (expected[i] < 0) {
-                uint256[] memory change = _uniPrice(uint256(expected[i] * -1), _getPath(1 - i));
-                expected[1 - i] -= int256(change[1]);
-                expected[i] = 0;
-                break;
-            } 
-        }
         return expected;
     }
 
