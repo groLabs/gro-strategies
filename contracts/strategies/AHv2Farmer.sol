@@ -64,11 +64,6 @@ interface IMasterChef {
     );
 }
 
-// merkle distributor contract interface (uesd by AH to drop alpha tokens)
-interface IMerkleClaim {
-    function claim(uint256 index, address account, uint256 amount, bytes32[] memory merkleProof) external;
-}
-
 /* @notice AHv2Farmer - Alpha Homora V2 yield aggregator strategy
  *
  *      Farming AHv2 Stable/ETH positions.
@@ -154,7 +149,6 @@ contract AHv2Farmer is BaseStrategy {
     event LogPositionAdjusted(uint256 positionId, uint256[] amounts, uint256 collateralSize, uint256[] debts, bool withdrawal);
     event LogEthSold(uint256[] ethSold);
     event LogSushiSold(uint256[] sushiSold);
-    event LogAlphaClaimed(uint256 alphaClaimed);
 
     event NewFarmer(address vault, address spell, address router, address pool, uint256 poolId);
     event LogNewReserversSet(uint256 reserve);
@@ -312,27 +306,6 @@ contract AHv2Farmer is BaseStrategy {
         } else {
             return 0;
         }
-    }
-
-    /*
-     * @notice Claim pending alpha rewards and transfer it to the rewards contract
-     * @param claimsContract alpha merkle distributer contract
-     * @param index position index
-     * @param amount position amount
-     * @param merkleProof position merkle proof
-     */
-    function claimAlpha(
-        address claimsContract,
-        uint256 index,
-        uint256 amount,
-        bytes32[] memory merkleProof) external 
-    {
-        IMerkleClaim(claimsContract).claim(index, msg.sender, amount, merkleProof);
-        uint256 alphaBalance = IERC20(alphaToken).balanceOf(address(this));
-        if (alphaBalance > 0) {
-            IERC20(alphaToken).safeTransfer(rewards, alphaBalance);
-        }
-        emit LogAlphaClaimed(alphaBalance);
     }
 
     /*
