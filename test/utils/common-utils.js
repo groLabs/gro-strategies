@@ -959,10 +959,10 @@ async function investVaults(controller) {
 }
 
 const tokens = {
-        dai: { address: '0x6B175474E89094C44Da98b954EedeAC495271d0F', name: "Dai", symbol: "DAI", decimals: 18, mappingSlot: '0x2'  },
-        usdc: { address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', name: "USD Coin", symbol: "USDC", decimals: 6, mappingSlot: '0x9'  },
-        usdt: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', name: "Tether USD", symbol: "USDT", decimals: 6, mappingSlot: '0x2'  },
-        weth: { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', name: "Wrapped ether", symbol: "ETH", decimals: 18, mappingSlot: '0x3'  },
+        dai: { address: '0xd586E7F844cEa2F87f50152665BCbc2C279D8d70', name: "Dai", symbol: "DAI", decimals: 18, mappingSlot: '0x0' },
+        usdc: { address: '0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664', name: "USD Coin", symbol: "USDC", decimals: 6, mappingSlot: '0x0' },
+        usdt: { address: '0xc7198437980c041c805A1EDcbA50c1Ce5db95118', name: "Tether USD", symbol: "USDT", decimals: 6, mappingSlot: '0x0' },
+        avax: { address: '0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7', name: "Wrapped AVAX", symbol: "AVAX", decimals: 18, mappingSlot: '0x3' },
 };
 
 function getBalanceOfSlotSolidity(mappingSlot, address) {

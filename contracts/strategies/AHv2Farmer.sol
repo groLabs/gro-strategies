@@ -117,32 +117,29 @@ contract AHv2Farmer is BaseStrategy {
     uint256 public collateralThreshold = 8900; // max collateral raio
     // LP Pool token
     IUniPool public immutable pool;
-    address public constant weth = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    address public constant weth = address(0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7);
     // Full repay
     uint256 constant REPAY = type(uint256).max;
-    address constant alphaToken = address(0xa1faa113cbE53436Df28FF0aEe54275c13B40975);
     
     // Uni or Sushi swap router
     address public immutable uniSwapRouter;
     // comment out if uniSwap spell is used
-    address public constant sushi = address(0x6B3595068778DD592e39A122f4f5a5cF09C90fE2);
-    address public constant homoraBank = address(0xba5eBAf3fc1Fcca67147050Bf80462393814E54B);
-    address public constant masterChef = address(0xc2EdaD668740f1aA35E4D8f227fB8E17dcA888Cd);
-    IWMasterChef public constant wMasterChef = IWMasterChef(0xA2caEa05fF7B98f10Ad5ddc837F15905f33FEb60);
+    address public constant sushi = address(0x6e84a6216eA6dACC71eE8E6b0a5B7322EEbC0fDd);
+    address public constant homoraBank = address(0x376d16C7dE138B01455a51dA79AD65806E9cd694);
+    address public constant masterChef = address(0xd6a4F121CA35509aF06A0Be99093d08462f53052);
+    IWMasterChef public constant wMasterChef = IWMasterChef(0xB41DE9c1f50697cC3Fd63F24EdE2B40f6269CBcb);
     address public immutable spell;
 
     // strategies current position
     uint256 public activePosition;
-    // Reserve to keep in contract in case we need to adjust position
-    uint256 public reserves;
     // How much change we accept in eth price before closing or adjusting the position
     uint256 public ilThreshold;
 
     // Min amount of tokens to open/adjust positions or sell
     uint256 public minWant;
-    uint256 public constant minEthToSell = 0.5E18;
+    uint256 public constant minEthToSell = 0;
     // comment out if uniSwap spell is used
-    uint256 public constant minSushiToSell = 1E18;
+    uint256 public constant minSushiToSell = 0;
 
     event LogNewPositionOpened(uint256 positionId, uint256[] price, uint256 collateralSize, uint256[] debts);
     event LogPositionClosed(uint256 positionId, uint256 wantRecieved, uint256[] price);
@@ -197,7 +194,7 @@ contract AHv2Farmer is BaseStrategy {
     string constant sushiOpen = 'addLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256),uint256)';
     string constant sushiClose = 'removeLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256))';
     // function for selling eth for want (uniswap router)
-    string constant ethForTokens = 'swapExactETHForTokens(uint256,address[],address,uint256)';
+    string constant ethForTokens = 'swapExactAVAXForTokens(uint256,address[],address,uint256)';
 
     // poolId for masterchef - can be commented out for non sushi spells
     uint256 immutable poolId;
@@ -220,12 +217,10 @@ contract AHv2Farmer is BaseStrategy {
         poolId = _poolId;
 
         uint256 _minWant = 10000 * (10 ** VaultAPI(_vault).decimals());
-        minWant = _minWant; // dont open or adjust a position unless more than 10000 want
-        reserves = _minWant; // keep a 10000 want in reserve in case we need to adjust position
+        minWant = 0; // dont open or adjust a position unless more than 10000 want
         ilThreshold = 400; // 4%
         emit NewFarmer(_vault, _spell, _router, _pool, _poolId);
         emit LogNewMinWantSet(_minWant);
-        emit LogNewReserversSet(_minWant);
         emit LogNewIlthresholdSet(400);
     }
 
@@ -244,15 +239,6 @@ contract AHv2Farmer is BaseStrategy {
     function setMinWant(uint256 _minWant) external onlyOwner {
         minWant = _minWant;
         emit LogNewMinWantSet(_minWant);
-    }
-
-    /*
-     * @notice set reserve of want to be kept in contract
-     * @param _newReserves new reserve amount
-     */
-    function setReserves(uint256 _newReserves) external onlyOwner {
-        reserves = _newReserves;
-        emit LogNewReserversSet(_newReserves);
     }
 
     /*
@@ -499,7 +485,7 @@ contract AHv2Farmer is BaseStrategy {
         path[1] = address(want);
 
         uint256[] memory amounts = _uniPrice(balance, sushi);
-        IUni(uniSwapRouter).swapExactTokensForTokens(amounts[0], amounts[1], path, address(this), block.timestamp);
+        IUni(uniSwapRouter).swapExactTokensForTokens(amounts[0], 0, path, address(this), block.timestamp);
         emit LogSushiSold(amounts);
         return amounts;
     }
@@ -765,7 +751,7 @@ contract AHv2Farmer is BaseStrategy {
         (uint112 reserve0, uint112 reserve1, ) = IUniPool(pool).getReserves();
         uint256[] memory amt = new uint256[](2);
         amt[1] = _amount * reserve1 / reserve0;
-        amt[0] = amt[1] * reserve0 / reserve1;
+        amt[0] = _amount; //amt[1] * reserve0 / reserve1;
         if (_withdraw) {
             uint256 poolBalance = IUniPool(pool).totalSupply();
             uint256 liquidity = Math.min(amt[0] * poolBalance / reserve0, amt[1] * poolBalance / reserve1);
@@ -885,9 +871,9 @@ contract AHv2Farmer is BaseStrategy {
 
         // check if the current want amount is large enough to justify opening/adding
         // to an existing position, else do nothing
-        if (_wantBal > minWant + reserves) {
+        if (_wantBal > minWant) {
             if (_positionId == 0) {
-                _openPosition(_wantBal - reserves);
+                _openPosition(_wantBal);
             } else {
                 int256 changeFactor = int256(_getCollateralFactor(_positionId)) - int256(targetCollateralRatio);
                 // collateralFactor is real bad close the position
@@ -897,8 +883,8 @@ contract AHv2Farmer is BaseStrategy {
                 // collateral factor is bad (5% above target), dont loan any more assets
                 } else if (changeFactor > 500) {
                     // we expect to swap out half of the want to eth
-                    (uint256[] memory newPosition, ) = _calcSingleSidedLiq((_wantBal - reserves) / 2, false);
-                    newPosition[0] = _wantBal - reserves;
+                    (uint256[] memory newPosition, ) = _calcSingleSidedLiq((_wantBal) / 2, false);
+                    newPosition[0] = _wantBal;
                     _adjustPosition(_positionId, newPosition, 0, false, false);
                 } else {
                     // TODO logic to lower the colateral ratio
@@ -913,7 +899,7 @@ contract AHv2Farmer is BaseStrategy {
                     //     uint256[] memory oldPrice = positions[_positionId].openWant;
                     //     uint256 newPercentage = (newPosition[0] * PERCENTAGE_DECIMAL_FACTOR / oldPrice[0])
                     // }
-                    (uint256[] memory newPosition, ) = _calcSingleSidedLiq(_wantBal - reserves, false);
+                    (uint256[] memory newPosition, ) = _calcSingleSidedLiq(_wantBal, false);
                     _adjustPosition(_positionId, newPosition, 0, true, false);
                 }
             }

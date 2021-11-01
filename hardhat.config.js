@@ -10,26 +10,46 @@ require('dotenv').config();
 require('hardhat-prettier');
 
 mainnet = process.env['mainnet']
+const FORK_FUJI = false
+const FORK_MAINNET = true
+const forkingData = FORK_FUJI ? {
+      url: 'https://api.avax-test.network/ext/bc/C/rpc',
+
+} : FORK_MAINNET ? {
+      url: 'https://api.avax.network/ext/bc/C/rpc'
+
+} : undefined
 
 /**
  * @type import('hardhat/config').HardhatUserConfig
  */
 module.exports = {
   networks: {
-    localhost: {
+    hardhat: {
+      gasPrice: 225000000000,
+      chainId: 43112, //!forkingData ? 43112 : undefined, //Only specify a chainId if we are not forking
+      forking: forkingData
+    },
+    local: {
       url: 'http://127.0.0.1:8545',
       gas: 12000000,
       blockGasLimit: 12000000
+      // url: 'http://localhost:9650/ext/bc/C/rpc',
+      // gasPrice: 225000000000,
+      // chainId: 43112,
     },
-    hardhat: {
-      forking: {
-        url: mainnet
-      },
-      gas: 12000000,
-      blockGasLimit: 0x1fffffffffffff,
-      allowUnlimitedContractSize: true,
-      timeout: 1800000,
+    fuji: {
+      url: 'https://api.avax-test.network/ext/bc/C/rpc',
+      gasPrice: 225000000000,
+      chainId: 43113,
+      accounts: []
     },
+    mainnet: {
+      url: 'https://api.avax.network/ext/bc/C/rpc',
+      gasPrice: 225000000000,
+      chainId: 43114,
+      accounts: []
+    }
   },
   mocha: {
     useColors: true,
