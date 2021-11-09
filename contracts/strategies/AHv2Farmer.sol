@@ -281,10 +281,6 @@ contract AHv2Farmer is BaseStrategy {
      * @param _balance contracts current sushi token balance
      */
     function _valueOfSushi(uint256 _positionId, uint256 _balance) internal view returns (uint256) {
-        address[] memory path = new address[](2);
-        path[0] = sushi;
-        path[1] = address(want);
-
         uint256 estimatedSushi = pendingSushi(_positionId) + _balance;
         if (estimatedSushi > 0 ) {
             uint256[] memory sushiWantValue = _uniPrice(estimatedSushi, sushi);
@@ -937,4 +933,14 @@ contract AHv2Farmer is BaseStrategy {
         _sellEth(false);
         _sellSushi(false);
     }
+
+    /*
+     * @notice Check that an external minAmount is achived when interacting with the AMM
+     * @param amount amount to swap
+     * @param _minAmount expected minAmount to get out from swap
+     */
+    function ammCheck(uint256 _amount, uint256 _minAmount) external view override returns (bool) {
+        uint256[] memory amounts = _uniPrice(_amount, address(want));
+        return (amounts[1] >= _minAmount);
+    }  
 }

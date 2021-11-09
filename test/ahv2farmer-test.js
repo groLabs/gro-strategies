@@ -1,7 +1,4 @@
 require('dotenv').config();
-const MockController = artifacts.require('MockController')
-const MockInsurance = artifacts.require('MockInsurance')
-const MockPnL = artifacts.require('MockPnL')
 const MockERC20 = artifacts.require('MockERC20')
 const TestStrategy = artifacts.require('TestStrategy')
 const AHStrategy = artifacts.require('AHv2Farmer')
@@ -28,11 +25,9 @@ const homoraABI = JSON.parse(fs.readFileSync("contracts/mocks/abi/homora.json"))
 const spellSushiABI = JSON.parse(fs.readFileSync("contracts/mocks/abi/sushiSpell.json"));
 const masterChefABI = JSON.parse(fs.readFileSync("contracts/mocks/abi/MasterChef.json"));
 const uniABI = JSON.parse(fs.readFileSync("contracts/mocks/abi/IUni.json"));
+const allowance = toBN(1E18)
 
 let usdcAdaptor,
-    mockController,
-    mockInsurance,
-    mockPnL,
     usdc,
     avax,
     sushi,
@@ -46,11 +41,13 @@ let usdcAdaptor,
     admin,
     governance,
     investor1,
-    investor2;
+    investor2,
+    bouncer;
 
 contract('Alpha homora test', function (accounts) {
   admin = accounts[0]
   governance = accounts[1]
+  bouncer = accounts[2]
   investor1 = accounts[8]
   investor2 = accounts[9]
   amount = new BN(10000)
@@ -105,16 +102,10 @@ contract('Alpha homora test', function (accounts) {
     usdc = await MockERC20.at(tokens.usdc.address);
     avax = await MockERC20.at(tokens.avax.address);
     sushi = await MockERC20.at(sushiToken);
-    mockController = await MockController.new();
-    mockInsurance = await MockInsurance.new();
-    mockPnL = await MockPnL.new();
-    await mockController.setInsurance(mockInsurance.address);
-    await mockController.setPnL(mockPnL.address);
 
     // create the vault adapter
-    usdcAdaptor = await VaultAdaptor.new(tokens.usdc.address, { from: governance });
+    usdcAdaptor = await VaultAdaptor.new(tokens.usdc.address, bouncer, { from: governance });
     usdcVault = usdcAdaptor;
-    await usdcAdaptor.setController(mockController.address, { from: governance });
 
     // create and add the AHv2 strategy to the adapter
     primaryStrategy = await AHStrategy.new(usdcVault.address, sushiSpell, router, pool, poolID);
@@ -144,6 +135,13 @@ contract('Alpha homora test', function (accounts) {
     await web3.eth.sendTransaction({to: AHGov, from: accounts[0], value: toWei('1', 'ether')})
     await homoraBank.methods.setWhitelistUsers([primaryStrategy.address], [true]).send({from: AHGov})
     await usdcAdaptor.addToWhitelist(governance, {from: governance});
+
+    await usdcAdaptor.setDepositLimit(constants.MAX_UINT256, {from: governance})
+    await usdc.approve(usdcAdaptor.address, allowance, {from: investor1});
+    await usdcAdaptor.setUserAllowance(investor1, constants.MAX_UINT256, {from: bouncer});
+    await usdc.approve(usdcAdaptor.address, constants.MAX_UINT256, {from: investor2});
+    await usdcAdaptor.setUserAllowance(investor2, allowance, {from: bouncer});
+
     for (let i = 0; i < 10; i++) {
       await network.provider.send("evm_mine");
     }
@@ -153,7 +151,9 @@ contract('Alpha homora test', function (accounts) {
   describe("Opening position", function () {
     beforeEach(async function () {
         // give that adapor 1M
-        await setBalance('usdc', usdcAdaptor.address, '10000');
+        const amount = '10000';
+        await setBalance('usdc', investor1, amount);
+        await usdcAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
     })
 
     // Given an investment of 1M usdc, the strategy should open up a market neutral position
@@ -191,7 +191,10 @@ contract('Alpha homora test', function (accounts) {
   // harvest/tend, given a specific set of circumstances.
   describe('Closing position', function () {
     beforeEach(async function () {
-        await setBalance('usdc', primaryStrategy.address, '100000');
+        const amount = '100000';
+        await setBalance('usdc', primaryStrategy.address, amount);
+        await setBalance('usdc', investor1, amount);
+        await usdcAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
         await usdcAdaptor.strategyHarvest(0, {from: governance})
     })
 
@@ -250,7 +253,9 @@ contract('Alpha homora test', function (accounts) {
   // Adjusting the position by adding and removing assets - can be done during harvest events (adding credit) or withdrawals
   describe('Adjusting position', function () {
     beforeEach(async function () {
-        await setBalance('usdc', usdcAdaptor.address, '10000');
+        const amount = '10000';
+        await setBalance('usdc', investor1, amount);
+        await usdcAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
         await usdcAdaptor.strategyHarvest(0, {from: governance})
     })
 
@@ -333,18 +338,17 @@ contract('Alpha homora test', function (accounts) {
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
 
-        const initUserusdc = await usdc.balanceOf(governance);
+        const initUserusdc = await usdc.balanceOf(investor1);
         // simulate withdrawal from AHv2 strategy via vaultAdapter
-        await mockController.setInsurance(governance, {from: governance});
         const amount = toBN(3000).mul(toBN(1E6))
-        await usdcAdaptor.withdrawByStrategyIndex(amount, governance, 0, {from:governance});
+        await usdcAdaptor.withdraw(amount, 1000, {from:investor1});
 
         const alphaDataRemove = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtRemove = await homoraBank.methods.getPositionDebts(position).call()
         // position remains the same
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
         // withdrawer should have more usdc
-        await expect(usdc.balanceOf(governance)).to.eventually.be.a.bignumber.gt(initUserusdc);
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(initUserusdc);
         // position debt and collateral has decreased
         assert.isBelow(Number(alphaDebtRemove['debts'][0]), Number(alphaDebt['debts'][0]));
         return assert.isBelow(Number(alphaDataRemove['collateralSize']), Number(alphaData['collateralSize']));
@@ -363,9 +367,8 @@ contract('Alpha homora test', function (accounts) {
         const initVaultusdc = await usdc.balanceOf(usdcAdaptor.address);
         return expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(expected);
         // simulate withdrawal from AHv2 strategy via vaultAdapter
-        await mockController.setInsurance(governance, {from: governance});
         const amount = toBN(3000).mul(toBN(1E6))
-        await usdcAdaptor.withdrawByStrategyIndex(amount, governance, 0, {from:governance});
+        await usdcAdaptor.withdraw(amount, 1000, {from:investor1});
 
         const alphaDataRemove = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtRemove = await homoraBank.methods.getPositionDebts(position).call()
@@ -385,16 +388,15 @@ contract('Alpha homora test', function (accounts) {
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
 
         // simulate withdrawal from AHv2 strategy via vaultAdapter
-        const initUserusdc = await usdc.balanceOf(governance);
-        await mockController.setInsurance(governance, {from: governance});
+        const initUserusdc = await usdc.balanceOf(investor1);
         const amount = toBN(7750).mul(toBN(1E6)) // ~ 79.5% of the position
-        await usdcAdaptor.withdrawByStrategyIndex(amount, governance, 0, {from:governance});
+        await usdcAdaptor.withdraw(amount, 1000, {from:investor1});
 
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(position));
 
         const alphaDataRemove = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtRemove = await homoraBank.methods.getPositionDebts(position).call()
-        await expect(usdc.balanceOf(governance)).to.eventually.be.a.bignumber.gt(initUserusdc);
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(initUserusdc);
         // position debt and collateral has decreased
         assert.isBelow(Number(alphaDebtRemove['debts'][0]), Number(alphaDebt['debts'][0]));
         return assert.isBelow(Number(alphaDataRemove['collateralSize']), Number(alphaData['collateralSize']));
@@ -406,10 +408,9 @@ contract('Alpha homora test', function (accounts) {
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
 
         // simulate withdrawal from AHv2 strategy via vaultAdapter
-        const initUserusdc = await usdc.balanceOf(governance);
-        await mockController.setInsurance(governance, {from: governance});
+        const initUserusdc = await usdc.balanceOf(investor1);
         const amount = toBN(8500).mul(toBN(1E6))
-        await usdcAdaptor.withdrawByStrategyIndex(amount, governance, 0, {from:governance});
+        await usdcAdaptor.withdraw(amount, 5, {from:investor1});
 
         // position is closed
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
@@ -417,7 +418,7 @@ contract('Alpha homora test', function (accounts) {
         const alphaDataRemove = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtRemove = await homoraBank.methods.getPositionDebts(position).call()
         // withdrawer has more usdc
-        await expect(usdc.balanceOf(governance)).to.eventually.be.a.bignumber.gt(initUserusdc);
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(initUserusdc);
         // position has no debt or collateral
         await expect(homoraBank.methods.getPositionDebts(position).call()).to.eventually.have.property("debts").that.eql([]);
         return expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
@@ -439,16 +440,15 @@ contract('Alpha homora test', function (accounts) {
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
 
         // simulate withdrawal from AHv2 strategy via vaultAdapter
-        const initUserusdc = await usdc.balanceOf(governance);
-        await mockController.setInsurance(governance, {from: governance});
+        const initUserusdc = await usdc.balanceOf(investor1);
         const amount = toBN(4000).mul(toBN(1E6))
-        await usdcAdaptor.withdrawByStrategyIndex(amount, governance, 0, {from:governance});
+        await usdcAdaptor.withdraw(amount, 1000, {from:investor1});
 
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
 
         const alphaDataRemove = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtRemove = await homoraBank.methods.getPositionDebts(position).call()
-        await expect(usdc.balanceOf(governance)).to.eventually.be.a.bignumber.gt(initUserusdc);
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(initUserusdc);
         await expect(homoraBank.methods.getPositionDebts(position).call()).to.eventually.have.property("debts").that.eql([]);
         return expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
     })
@@ -608,8 +608,6 @@ contract('Alpha homora test', function (accounts) {
         const alphaDataFin = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtFin = await homoraBank.methods.getPositionDebts(position).call()
         const finalProfit = (await usdcAdaptor.strategies(primaryStrategy.address)).totalGain;
-        console.log('preHarvestProfit ' + preHarvestProfit);
-        console.log('finalProfit ' + finalProfit);
 
         // expectedReturn should be back at 0
         assert.isAbove(finalProfit.toNumber(), preHarvestProfit.toNumber());

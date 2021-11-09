@@ -14,6 +14,9 @@ import "../BaseStrategy.sol";
 
 contract TestStrategy is BaseStrategy {
     bool public doReentrancy;
+    bool public ammStatus = true;
+    bool noLoss = false;
+    bool toMuchGain = false;
 
     constructor(address _vault) BaseStrategy(_vault) {}
 
@@ -63,10 +66,21 @@ contract TestStrategy is BaseStrategy {
         } else {
             loss = totalDebt - totalAssets;
         }
+        if (toMuchGain) {
+            profit = profit * 5;
+        }
     }
 
     function _adjustPosition(uint256 _debtOutstanding) internal override {
         // Whatever we have "free", consider it "invested" now
+    }
+
+    function setToMuchGain() external {
+        toMuchGain = true;
+    }
+
+    function setNoLossStrategy() external {
+        noLoss = true;
     }
 
     function _liquidatePosition(uint256 _amountNeeded) internal view override returns (uint256 liquidatedAmount, uint256 loss) {
@@ -74,14 +88,26 @@ contract TestStrategy is BaseStrategy {
         uint256 totalAssets = want.balanceOf(address(this));
         if (_amountNeeded > totalAssets) {
             liquidatedAmount = totalAssets;
-            loss = _amountNeeded - totalAssets;
+            if (!noLoss) {
+                loss = _amountNeeded - totalAssets;
+            }
         } else {
             // NOTE: Just in case something was stolen from this contract
             if (totalDebt > totalAssets) {
-                loss = totalDebt - totalAssets;
-                if (loss > _amountNeeded) loss = _amountNeeded;
+                if (!noLoss) {
+                    loss = totalDebt - totalAssets;
+                    if (loss > _amountNeeded) loss = _amountNeeded;
+                }
             }
-            liquidatedAmount = _amountNeeded;
+            if (!noLoss) {
+                liquidatedAmount = _amountNeeded - loss;
+            } else {
+                if (_amountNeeded > totalAssets) {
+                    liquidatedAmount = totalAssets;
+                } else {
+                    liquidatedAmount = _amountNeeded;
+                }
+            }
         }
     }
 
@@ -107,5 +133,13 @@ contract TestStrategy is BaseStrategy {
     function tendTrigger(uint256 callCost) public pure override returns (bool) {
         if (callCost > 0) return false;
         return true;
+    }
+
+    function setAmmCheck(bool status) external {
+        ammStatus = status;
+    }
+
+    function ammCheck(uint256 _check, uint256 _minAmount) external view override returns (bool) {
+        return ammStatus;
     }
 }
