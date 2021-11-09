@@ -17,6 +17,7 @@ contract TestStrategy is BaseStrategy {
     bool public ammStatus = true;
     bool noLoss = false;
     bool toMuchGain = false;
+    bool toMuchLoss = false;
 
     constructor(address _vault) BaseStrategy(_vault) {}
 
@@ -69,6 +70,9 @@ contract TestStrategy is BaseStrategy {
         if (toMuchGain) {
             profit = profit * 5;
         }
+        if (toMuchLoss) {
+            loss = totalDebt * 2;
+        }
     }
 
     function _adjustPosition(uint256 _debtOutstanding) internal override {
@@ -77,6 +81,10 @@ contract TestStrategy is BaseStrategy {
 
     function setToMuchGain() external {
         toMuchGain = true;
+    }
+
+    function setToMuchLoss() external {
+        toMuchLoss = true;
     }
 
     function setNoLossStrategy() external {
