@@ -800,10 +800,9 @@ contract VaultAdaptorMK2 is
         uint256 _assets = _totalAssets();
         if (_assets > 0) {
             return (_amount * totalSupply()) / _assets;
-        } else {
-            // unlikely to happen, but here for safety
-            return 0;
         }
+        // unlikely to happen, but here for safety
+        return 0;
     }
 
     /// @notice Report back any gains/losses from a (strategy) harvest, vault adapetr
