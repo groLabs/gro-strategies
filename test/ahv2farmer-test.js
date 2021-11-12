@@ -644,7 +644,7 @@ contract('Alpha homora test', function (accounts) {
 
   describe("Utility", function () {
     it('Should be possible to get the strategy Name', async () => {
-        return expect(primaryStrategy.name()).to.eventually.equal('Ahv2 strategy');
+        return expect(primaryStrategy.name()).to.eventually.equal('AHv2 strategy');
     })
   })
 })
