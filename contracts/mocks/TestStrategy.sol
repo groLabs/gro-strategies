@@ -36,60 +36,60 @@ contract TestStrategy is BaseStrategy {
         return want.balanceOf(address(this));
     }
 
-    function prepareReturn(uint256 _debtOutstanding)
+    function _prepareReturn(uint256 _debtOutstanding)
         internal
         view
         override
         returns (
-            uint256 _profit,
-            uint256 _loss,
-            uint256 _debtPayment
+            uint256 profit,
+            uint256 loss,
+            uint256 debtPayment
         )
     {
         // During testing, send this contract some tokens to simulate "Rewards"
         uint256 totalAssets = want.balanceOf(address(this));
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
         if (totalAssets > _debtOutstanding) {
-            _debtPayment = _debtOutstanding;
+            debtPayment = _debtOutstanding;
             totalAssets -= _debtOutstanding;
         } else {
-            _debtPayment = totalAssets;
+            debtPayment = totalAssets;
             totalAssets = 0;
         }
-        totalDebt -= _debtPayment;
+        totalDebt -= debtPayment;
 
         if (totalAssets > totalDebt) {
-            _profit = totalAssets - totalDebt;
+            profit = totalAssets - totalDebt;
         } else {
-            _loss = totalDebt - totalAssets;
+            loss = totalDebt - totalAssets;
         }
     }
 
-    function adjustPosition(uint256 _debtOutstanding) internal override {
+    function _adjustPosition(uint256 _debtOutstanding) internal override {
         // Whatever we have "free", consider it "invested" now
     }
 
-    function liquidatePosition(uint256 _amountNeeded) internal view override returns (uint256 _liquidatedAmount, uint256 _loss) {
+    function _liquidatePosition(uint256 _amountNeeded) internal view override returns (uint256 liquidatedAmount, uint256 loss) {
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
         uint256 totalAssets = want.balanceOf(address(this));
         if (_amountNeeded > totalAssets) {
-            _liquidatedAmount = totalAssets;
-            _loss = _amountNeeded - totalAssets;
+            liquidatedAmount = totalAssets;
+            loss = _amountNeeded - totalAssets;
         } else {
             // NOTE: Just in case something was stolen from this contract
             if (totalDebt > totalAssets) {
-                _loss = totalDebt - totalAssets;
-                if (_loss > _amountNeeded) _loss = _amountNeeded;
+                loss = totalDebt - totalAssets;
+                if (loss > _amountNeeded) loss = _amountNeeded;
             }
-            _liquidatedAmount = _amountNeeded;
+            liquidatedAmount = _amountNeeded;
         }
     }
 
-    function prepareMigration(address _newStrategy) internal override {
+    function _prepareMigration(address _newStrategy) internal override {
         // Nothing needed here because no additional tokens/tokenized positions for mock
     }
 
-    function protectedTokens() internal override pure returns (address[] memory) {
+    function _protectedTokens() internal override pure returns (address[] memory) {
         return new address[](0); // No additional tokens/tokenized positions for mock
     }
 
