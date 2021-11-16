@@ -91,6 +91,8 @@ contract VaultAdaptorMK2 is
     uint256 public depositLimit;
 
     address public bouncer;
+    address public rewards;
+    uint256 public vaultFee;
 
     event LogStrategyAdded(
         address indexed strategy,
@@ -132,6 +134,8 @@ contract VaultAdaptorMK2 is
     event LogDebtRatios(uint256[] strategyRetios);
     event LogMigrate(address parent, address child, uint256 amount);
     event LogNewBouncer(address bouncer);
+    event LogNewRewards(address rewards);
+    event LogNewVaultFee(uint256 vaultFee);
     event LogNewStrategyHarvest(bool loss, uint256 change);
     event LogNewAllowance(address user, uint256 amount);
     event LogDeposit(
@@ -162,6 +166,28 @@ contract VaultAdaptorMK2 is
     /// @notice Vault share decimals
     function decimals() public view override returns (uint8) {
         return uint8(_decimals);
+    }
+
+    /// @notice Set contract that controlls user allowance
+    /// @param _bouncer address of new bouncer
+    function setBouncer(address _bouncer) external onlyOwner {
+        bouncer = _bouncer;
+        emit LogNewBouncer(_bouncer);
+    }
+
+    /// @notice Set contract that will recieve vault fees
+    /// @param _rewards address of rewards contract
+    function setRewards(address _rewards) external onlyOwner {
+        rewards = _rewards;
+        emit LogNewRewards(_rewards);
+    }
+
+    /// @notice Set fee that is reduced from strategy yields when harvests are called
+    /// @param _fee new strategy fee
+    function setVaultFee(uint256 _fee) external onlyOwner {
+        require(_fee < 3000, 'setVaultFee: _fee > 30%');
+        vaultFee = _fee;
+        emit LogNewVaultFee(_fee);
     }
 
     /// @notice Total limit for vault deposits
@@ -847,6 +873,8 @@ contract VaultAdaptorMK2 is
         }
 
         uint256 totalAvailable = _gain + debtPayment;
+        if (vaultFee > 0 && _gain > 0) _issueSharesForAmount(rewards, _gain * vaultFee / PERCENTAGE_DECIMAL_FACTOR);
+
         if (totalAvailable < credit) {
             _token.safeTransfer(msg.sender, credit - totalAvailable);
         } else if (totalAvailable > credit) {
