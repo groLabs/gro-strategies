@@ -924,15 +924,18 @@ contract("VaultAdapter test", function (accounts) {
       ).to.eventually.be.rejectedWith("deposit: !depositLimit");
     });
 
-    it("Should not be possible to deposit more than a users allowance", async function () {
-      const amount = "10000";
-      await setBalance("usdc", investor1, amount);
-      await usdcAdaptor.setUserAllowance(investor1, amount, { from: bouncer });
+    it.only("Should not be possible to deposit more than a users allowance", async function () {
+      const amount = '10000'
+      await setBalance("usdc", investor3, amount);
+      await usdcAdaptor.setUserAllowance(investor3, amount, { from: bouncer });
+      await usdc.approve(usdcAdaptor.address, constants.MAX_UINT256, {
+        from: investor3,
+      });
       await expect(
-        usdcAdaptor.deposit(amount, { from: investor1 })
+        usdcAdaptor.deposit(toBN(amount).mul(toBN(1E6)), { from: investor3 })
       ).to.eventually.be.fulfilled;
       return expect(
-        usdcAdaptor.deposit(1, { from: investor1 })
+        usdcAdaptor.deposit(1, { from: investor3 })
       ).to.eventually.be.rejectedWith("deposit: !userAllowance");
     });
 
