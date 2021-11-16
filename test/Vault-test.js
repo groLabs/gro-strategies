@@ -423,7 +423,7 @@ contract("VaultAdapter test", function (accounts) {
     });
   });
 
-  describe.only("Fees", function () {
+  describe("Fees", function () {
     beforeEach(async function () {
       const amount = "10000";
       await setBalance("usdc", investor1, amount);
@@ -1202,19 +1202,19 @@ contract("VaultAdapter test", function (accounts) {
       ).to.eventually.be.rejectedWith("revokeStrategy: strategy not active");
     });
 
-    it.only("Should be possible to set a new bouncer", async function () {
+    it("Should be possible to set a new bouncer", async function () {
         await expect(usdcAdaptor.bouncer()).to.eventually.not.equal(investor1);
         await usdcAdaptor.setBouncer(investor1, { from: governance });
         return expect(usdcAdaptor.bouncer()).to.eventually.be.equal(investor1);
     });
 
-    it.only("Should be possibe to set a new rewards account", async function () {
+    it("Should be possibe to set a new rewards account", async function () {
         await expect(usdcAdaptor.rewards()).to.eventually.not.equal(investor1);
         await usdcAdaptor.setRewards(investor1, { from: governance });
         return expect(usdcAdaptor.rewards()).to.eventually.be.equal(investor1);
     });
 
-    it.only("Should be possible to set a new vaultFee", async function () {
+    it("Should be possible to set a new vaultFee", async function () {
         await expect(usdcAdaptor.vaultFee()).to.eventually.be.a.bignumber.equal(toBN(0));
         await usdcAdaptor.setVaultFee(1000, { from: governance });
         return expect(usdcAdaptor.vaultFee()).to.eventually.be.a.bignumber.equal(toBN(1000));

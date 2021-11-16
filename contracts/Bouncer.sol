@@ -8,6 +8,16 @@ interface IVault {
     function setUserAllowance(address _user, uint256 _amount) external;
 }
 
+/// notice Airdrop contract for the stand alone vault
+///     Provided merkleRoot will allow users to make an allowance claim against
+///     the Gro Labs stand alone vaults - one drop allows to claim the same amount against all
+///     available vaults, subsequent drops will allow the user to add to their current allowance.
+///     Note that the airdrops in this contract wont be normalized to any specific token, and its
+///     the sVaults responsibility to correctly translate the amount to the correct decimal, e.g.:
+///         Aridrop for user 1: 10000
+///         Claim against daiVault will result in an allowance of 10000 * 1E18
+///         Claim against usdcVault will result in an allowance of 10000 * 1E6
+///         etc...
 contract Bouncer is Ownable {
 
     bytes32 public root;

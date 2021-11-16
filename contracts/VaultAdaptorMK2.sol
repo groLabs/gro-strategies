@@ -205,7 +205,7 @@ contract VaultAdaptorMK2 is
             msg.sender == bouncer,
             "setUserAllowance: msg.sender != bouncer"
         );
-        userAllowance[_user] = _amount;
+        userAllowance[_user] += _amount * (10**_decimals);
         emit LogNewAllowance(_user, _amount);
     }
 
@@ -827,7 +827,6 @@ contract VaultAdaptorMK2 is
         if (_assets > 0) {
             return (_amount * totalSupply()) / _assets;
         }
-        // unlikely to happen, but here for safety
         return 0;
     }
 
