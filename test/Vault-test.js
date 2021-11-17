@@ -427,7 +427,7 @@ contract("VaultAdapter test", function (accounts) {
     beforeEach(async function () {
       const amount = "10000";
       await setBalance("usdc", investor1, amount);
-      await usdcAdaptor.setRewards(governance, { from: governance })
+      await usdcAdaptor.setRewards(governance, { from: governance });
       await usdcAdaptor.setVaultFee(2000, { from: governance });
       await usdcAdaptor.deposit(toBN(amount).mul(toBN(1e6)), {
         from: investor1,
@@ -438,18 +438,24 @@ contract("VaultAdapter test", function (accounts) {
 
     it("Should mint assets to rewards account during harvest if there is a withdrawal fee", async function () {
       const amount = "22000";
-      const gain = "16000" // 22000 - 6000
-      const norm_amount = toBN(gain).mul(toBN(1E6));
+      const gain = "16000"; // 22000 - 6000
+      const norm_amount = toBN(gain).mul(toBN(1e6));
       await setBalance("usdc", primaryStrategy.address, amount);
       const adaptor_assets = await usdcAdaptor.totalAssets();
       await expect(usdcAdaptor.strategies(primaryStrategy.address))
         .to.eventually.have.property("totalGain")
         .that.is.a.bignumber.equal(toBN(0));
-      await expect(usdcAdaptor.balanceOf(governance)).to.eventually.be.a.bignumber.equal(toBN(0));
+      await expect(
+        usdcAdaptor.balanceOf(governance)
+      ).to.eventually.be.a.bignumber.equal(toBN(0));
       await usdcAdaptor.strategyHarvest(0, 0, 0, { from: bot });
-      return expect(usdcAdaptor.balanceOf(governance)).to.eventually.be.a.bignumber.equal(norm_amount.mul(toBN(2000)).div(toBN(10000)));
-      })
-  })
+      return expect(
+        usdcAdaptor.balanceOf(governance)
+      ).to.eventually.be.a.bignumber.equal(
+        norm_amount.mul(toBN(2000)).div(toBN(10000))
+      );
+    });
+  });
 
   describe("Harvest", function () {
     beforeEach(async function () {
@@ -953,14 +959,14 @@ contract("VaultAdapter test", function (accounts) {
     });
 
     it("Should not be possible to deposit more than a users allowance", async function () {
-      const amount = '10000'
+      const amount = "10000";
       await setBalance("usdc", investor3, amount);
       await usdcAdaptor.setUserAllowance(investor3, amount, { from: bouncer });
       await usdc.approve(usdcAdaptor.address, constants.MAX_UINT256, {
         from: investor3,
       });
       await expect(
-        usdcAdaptor.deposit(toBN(amount).mul(toBN(1E6)), { from: investor3 })
+        usdcAdaptor.deposit(toBN(amount).mul(toBN(1e6)), { from: investor3 })
       ).to.eventually.be.fulfilled;
       return expect(
         usdcAdaptor.deposit(1, { from: investor3 })
@@ -1203,21 +1209,25 @@ contract("VaultAdapter test", function (accounts) {
     });
 
     it("Should be possible to set a new bouncer", async function () {
-        await expect(usdcAdaptor.bouncer()).to.eventually.not.equal(investor1);
-        await usdcAdaptor.setBouncer(investor1, { from: governance });
-        return expect(usdcAdaptor.bouncer()).to.eventually.be.equal(investor1);
+      await expect(usdcAdaptor.bouncer()).to.eventually.not.equal(investor1);
+      await usdcAdaptor.setBouncer(investor1, { from: governance });
+      return expect(usdcAdaptor.bouncer()).to.eventually.be.equal(investor1);
     });
 
     it("Should be possibe to set a new rewards account", async function () {
-        await expect(usdcAdaptor.rewards()).to.eventually.not.equal(investor1);
-        await usdcAdaptor.setRewards(investor1, { from: governance });
-        return expect(usdcAdaptor.rewards()).to.eventually.be.equal(investor1);
+      await expect(usdcAdaptor.rewards()).to.eventually.not.equal(investor1);
+      await usdcAdaptor.setRewards(investor1, { from: governance });
+      return expect(usdcAdaptor.rewards()).to.eventually.be.equal(investor1);
     });
 
     it("Should be possible to set a new vaultFee", async function () {
-        await expect(usdcAdaptor.vaultFee()).to.eventually.be.a.bignumber.equal(toBN(0));
-        await usdcAdaptor.setVaultFee(1000, { from: governance });
-        return expect(usdcAdaptor.vaultFee()).to.eventually.be.a.bignumber.equal(toBN(1000));
+      await expect(usdcAdaptor.vaultFee()).to.eventually.be.a.bignumber.equal(
+        toBN(0)
+      );
+      await usdcAdaptor.setVaultFee(1000, { from: governance });
+      return expect(usdcAdaptor.vaultFee()).to.eventually.be.a.bignumber.equal(
+        toBN(1000)
+      );
     });
 
     it("Should revert for way to many reasons when trynig to add a strategy", async function () {

@@ -154,11 +154,12 @@ contract VaultAdaptorMK2 is
 
     constructor(address _token, address _bouncer)
         ERC20(
-            string(abi.encodePacked(IERC20Detailed(_token).symbol(), " vault")),
+            string(abi.encodePacked("Gro ", IERC20Detailed(_token).symbol(), " Lab")),
             string(abi.encodePacked("gro", IERC20Detailed(_token).symbol()))
         )
     {
         token = _token;
+        activation = block.timestamp;
         _decimals = IERC20Detailed(_token).decimals();
         bouncer = _bouncer;
     }
