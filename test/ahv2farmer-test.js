@@ -138,7 +138,7 @@ contract('Alpha homora test', function (accounts) {
 
     await usdcAdaptor.setDepositLimit(constants.MAX_UINT256, {from: governance});
     await usdc.approve(usdcAdaptor.address, allowance, {from: investor1});
-    await usdcAdaptor.setUserAllowance(investor1, constants.MAX_UINT256, {from: bouncer});
+    await usdcAdaptor.setUserAllowance(investor1, allowance, {from: bouncer});
     await usdc.approve(usdcAdaptor.address, constants.MAX_UINT256, {from: investor2});
     await usdcAdaptor.setUserAllowance(investor2, allowance, {from: bouncer});
 
@@ -302,11 +302,11 @@ contract('Alpha homora test', function (accounts) {
     it('Should limit the amount the position is adjusted by depending on the borrow limit', async () => {
         const position = await primaryStrategy.activePosition();
         // set a borrow limit of 1M
-        const borrowLimit = toBN(1E6).mul(toBN(1E6))
+        const borrowLimit = toBN(1E5).mul(toBN(1E6))
         await primaryStrategy.setBorrowLimit(borrowLimit, {from: governance});
 
         // add 1M to usdcAdaptor
-        await setBalance('usdc', usdcAdaptor.address, '1000000');
+        await setBalance('usdc', usdcAdaptor.address, '100000');
         // adjust the position, should take on more debt as the collateral ratio is fine
         await usdcAdaptor.strategyHarvest(0, 0, 0, {from: governance})
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
@@ -517,7 +517,7 @@ contract('Alpha homora test', function (accounts) {
     // Sell assets
     it('Should correctly sell of eth and sushi', async () => {
         const sid = await snapshotChain();
-        await setBalance('usdc', usdcAdaptor.address, '100000');
+        await setBalance('usdc', usdcAdaptor.address, '10000');
         await usdcAdaptor.strategyHarvest(0, 0, 0, {from: governance});
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
@@ -558,9 +558,9 @@ contract('Alpha homora test', function (accounts) {
     // should be able to estiamte totalAsset changes
     it('Should estimate totalAssets', async () => {
         const sid = await snapshotChain();
-        await setBalance('usdc', usdcAdaptor.address, '100000');
-        await usdcAdaptor.strategyHarvest(0, 0, 0, {from: governance});
         const amount = '100000'
+        await setBalance('usdc', usdcAdaptor.address, amount);
+        await usdcAdaptor.strategyHarvest(0, 0, 0, {from: governance});
         const position = await primaryStrategy.activePosition();
         const initAssets = await primaryStrategy.estimatedTotalAssets();
         const reserves = await usdc.balanceOf(primaryStrategy.address);
@@ -685,7 +685,7 @@ contract('Alpha homora test', function (accounts) {
     })
 
     it('Should revert if a an AMM check fails', async () => {
-        const amount = '100000';
+        const amount = '10000';
         const amount_norm_usdc = toBN(amount).mul(toBN(1E6));
         const amount_norm_weth = toBN(amount).mul(toBN(1E18));
         await setBalance('usdc', primaryStrategy.address, amount);
