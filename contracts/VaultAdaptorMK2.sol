@@ -185,7 +185,7 @@ contract VaultAdaptorMK2 is
     /// @notice Set fee that is reduced from strategy yields when harvests are called
     /// @param _fee new strategy fee
     function setVaultFee(uint256 _fee) external onlyOwner {
-        require(_fee < 3000, 'setVaultFee: _fee > 30%');
+        require(_fee < 3000, "setVaultFee: _fee > 30%");
         vaultFee = _fee;
         emit LogNewVaultFee(_fee);
     }
@@ -852,6 +852,11 @@ contract VaultAdaptorMK2 is
         if (_loss > 0) {
             _reportLoss(msg.sender, _loss);
         }
+        if (vaultFee > 0 && _gain > 0)
+            _issueSharesForAmount(
+                rewards,
+                (_gain * vaultFee) / PERCENTAGE_DECIMAL_FACTOR
+            );
 
         _strategy.totalGain = _strategy.totalGain + _gain;
 
@@ -872,7 +877,6 @@ contract VaultAdaptorMK2 is
         }
 
         uint256 totalAvailable = _gain + debtPayment;
-        if (vaultFee > 0 && _gain > 0) _issueSharesForAmount(rewards, _gain * vaultFee / PERCENTAGE_DECIMAL_FACTOR);
 
         if (totalAvailable < credit) {
             _token.safeTransfer(msg.sender, credit - totalAvailable);
