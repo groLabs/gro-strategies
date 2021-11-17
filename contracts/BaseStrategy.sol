@@ -17,8 +17,14 @@ struct StrategyParams {
 
 interface VaultAPI {
     function decimals() external view returns (uint256);
+
     function token() external view returns (address);
-    function strategies(address _strategy) external view returns (StrategyParams memory);
+
+    function strategies(address _strategy)
+        external
+        view
+        returns (StrategyParams memory);
+
     /**
      * View how much the Vault would increase this Strategy's borrow limit,
      * based on its present performance (since its last report). Can be used to
@@ -65,6 +71,7 @@ interface VaultAPI {
      * external dependency.
      */
     function revokeStrategy() external;
+
     function owner() external view returns (address);
 }
 
@@ -73,17 +80,33 @@ interface VaultAPI {
  */
 interface StrategyAPI {
     function name() external view returns (string memory);
+
     function vault() external view returns (address);
+
     function want() external view returns (address);
+
     function keeper() external view returns (address);
+
     function isActive() external view returns (bool);
+
     function estimatedTotalAssets() external view returns (uint256);
+
     function expectedReturn() external view returns (uint256);
+
     function tendTrigger(uint256 _callCost) external view returns (bool);
+
     function tend() external;
+
     function harvestTrigger(uint256 _callCost) external view returns (bool);
+
     function harvest() external;
-    event Harvested(uint256 profit, uint256 loss, uint256 debtPayment, uint256 debtOutstanding);
+
+    event Harvested(
+        uint256 profit,
+        uint256 loss,
+        uint256 debtPayment,
+        uint256 debtOutstanding
+    );
 }
 
 /**
@@ -112,7 +135,12 @@ abstract contract BaseStrategy {
     IERC20 public want;
 
     // So indexers can keep track of this
-    event Harvested(uint256 profit, uint256 loss, uint256 debtPayment, uint256 debtOutstanding);
+    event Harvested(
+        uint256 profit,
+        uint256 loss,
+        uint256 debtPayment,
+        uint256 debtOutstanding
+    );
     event UpdatedKeeper(address newKeeper);
     event UpdatedRewards(address rewards);
     event UpdatedMinReportDelay(uint256 delay);
@@ -168,7 +196,7 @@ abstract contract BaseStrategy {
     function name() external view virtual returns (string memory);
 
     function setKeeper(address _keeper) external onlyOwner {
-        require(_keeper != address(0), 'setKeeper: _keeper == 0x');
+        require(_keeper != address(0), "setKeeper: _keeper == 0x");
         keeper = _keeper;
         emit UpdatedKeeper(_keeper);
     }
@@ -185,7 +213,10 @@ abstract contract BaseStrategy {
      * @param _delay The minimum number of seconds to wait between harvests.
      */
     function setMinReportDelay(uint256 _delay) external onlyAuthorized {
-        require(_delay < maxReportDelay, 'setMinReportDelay: _delay > maxReportDelay');
+        require(
+            _delay < maxReportDelay,
+            "setMinReportDelay: _delay > maxReportDelay"
+        );
         minReportDelay = _delay;
         emit UpdatedMinReportDelay(_delay);
     }
@@ -202,7 +233,10 @@ abstract contract BaseStrategy {
      * @param _delay The maximum number of seconds to wait between harvests.
      */
     function setMaxReportDelay(uint256 _delay) external onlyAuthorized {
-        require(_delay > minReportDelay, 'setMaxReportDelay: _delay < minReportDelay');
+        require(
+            _delay > minReportDelay,
+            "setMaxReportDelay: _delay < minReportDelay"
+        );
         maxReportDelay = _delay;
         emit UpdatedMaxReportDelay(_delay);
     }
@@ -217,7 +251,7 @@ abstract contract BaseStrategy {
      * `harvest()` gas cost against.
      */
     function setProfitFactor(uint256 _profitFactor) external onlyAuthorized {
-        require(_profitFactor <= 1000, 'setProfitFactor: _profitFactor > 1000');
+        require(_profitFactor <= 1000, "setProfitFactor: _profitFactor > 1000");
         profitFactor = _profitFactor;
         emit UpdatedProfitFactor(_profitFactor);
     }
@@ -234,7 +268,11 @@ abstract contract BaseStrategy {
      * @param _debtThreshold How big of a loss this Strategy may carry without
      * being required to report to the Vault.
      */
-    function setDebtThreshold(uint256 _debtThreshold) external virtual onlyAuthorized {
+    function setDebtThreshold(uint256 _debtThreshold)
+        external
+        virtual
+        onlyAuthorized
+    {
         debtThreshold = _debtThreshold;
         emit UpdatedDebtThreshold(_debtThreshold);
     }
@@ -282,7 +320,9 @@ abstract contract BaseStrategy {
      * @return True if the strategy is actively managing a position.
      */
     function isActive() public view returns (bool) {
-        return vault.strategies(address(this)).debtRatio > 0 || estimatedTotalAssets() > 0;
+        return
+            vault.strategies(address(this)).debtRatio > 0 ||
+            estimatedTotalAssets() > 0;
     }
 
     /**
@@ -364,7 +404,7 @@ abstract contract BaseStrategy {
      * @param _callCost The keeper's estimated cast cost to call `tend()`.
      * @return `true` if `tend()` should be called, `false` otherwise.
      */
-    function tendTrigger(uint256 _callCost) public view virtual returns (bool); 
+    function tendTrigger(uint256 _callCost) public view virtual returns (bool);
 
     /**
      * @notice
@@ -409,7 +449,12 @@ abstract contract BaseStrategy {
      * @param _callCost The keeper's estimated cast cost to call `harvest()`.
      * @return `true` if `harvest()` should be called, `false` otherwise.
      */
-    function harvestTrigger(uint256 _callCost) public view virtual returns (bool) {
+    function harvestTrigger(uint256 _callCost)
+        public
+        view
+        virtual
+        returns (bool)
+    {
         StrategyParams memory params = vault.strategies(address(this));
 
         // Should not trigger if Strategy is not activated
@@ -460,7 +505,7 @@ abstract contract BaseStrategy {
      *  any losses have occurred.
      */
     function harvest() external {
-        require(msg.sender == address(vault), 'harvest: Call from vault');
+        require(msg.sender == address(vault), "harvest: !vault");
         uint256 profit = 0;
         uint256 loss = 0;
         uint256 debtOutstanding = vault.debtOutstanding();
@@ -506,7 +551,7 @@ abstract contract BaseStrategy {
         uint256 amountFreed;
         (amountFreed, loss) = _liquidatePosition(_amountNeeded);
         // Send it directly back (NOTE: Using `msg.sender` saves some gas here)
-        if(amountFreed > 0) want.safeTransfer(msg.sender, amountFreed);
+        if (amountFreed > 0) want.safeTransfer(msg.sender, amountFreed);
         // NOTE: Reinvest anything leftover on next `tend`/`harvest`
     }
 
@@ -566,7 +611,11 @@ abstract contract BaseStrategy {
      *      return protected;
      *    }
      */
-    function _protectedTokens() internal view virtual returns (address[] memory);
+    function _protectedTokens()
+        internal
+        view
+        virtual
+        returns (address[] memory);
 
     /**
      * @notice
@@ -586,17 +635,25 @@ abstract contract BaseStrategy {
      * @param _token The token to transfer out of this vault.
      */
     function sweep(address _token) external onlyOwner {
-        require(_token != address(want), "!want");
-        require(_token != address(vault), "!shares");
+        require(_token != address(want), "sweep: !want");
+        require(_token != address(vault), "sweep: !shares");
 
         address[] memory protectedTokens = _protectedTokens();
         for (uint256 i; i < protectedTokens.length; i++)
-            require(_token != protectedTokens[i], "!protected");
+            require(_token != protectedTokens[i], "sweep: !protected");
 
-        IERC20(_token).safeTransfer(_owner(), IERC20(_token).balanceOf(address(this)));
+        IERC20(_token).safeTransfer(
+            _owner(),
+            IERC20(_token).balanceOf(address(this))
+        );
     }
 
-    function ammCheck(uint256 _amount, uint256 _minAmount) external view virtual returns (bool) {
+    function ammCheck(uint256 _amount, uint256 _minAmount)
+        external
+        view
+        virtual
+        returns (bool)
+    {
         return true;
     }
 }
