@@ -9,7 +9,6 @@ require("solidity-coverage");
 require('dotenv').config();
 require('hardhat-prettier');
 
-mainnet = process.env['mainnet']
 const FORK_FUJI = false
 const FORK_MAINNET = true
 const forkingData = FORK_FUJI ? {
@@ -19,6 +18,32 @@ const forkingData = FORK_FUJI ? {
       url: 'https://api.avax.network/ext/bc/C/rpc'
 
 } : undefined
+
+const fs = require("fs");
+const Accounts = require('web3-eth-accounts');
+
+const accounts = new Accounts('ws://localhost:8545');
+let account, referal, bot, kovan, mainnet, ropsten, goerli;
+if (process.env['DEPLOY_MAIN'] === '1') {
+  let keystoreD = JSON.parse(fs.readFileSync("deployment"));
+  let keyD = accounts.decrypt(keystoreD, process.env['PPASS']);
+  let keystoreB = JSON.parse(fs.readFileSync("harvest_bot"));
+  let keyB = accounts.decrypt(keystoreB, process.env['BOT']);
+  account = keyD.privateKey
+  bot = keyB.privateKey
+  referal = process.env['REF']
+} else if (process.env['DEPLOY_MAIN'] === '2') {
+  let keystoreD = JSON.parse(fs.readFileSync("deployment_avax"));
+  let keyD = accounts.decrypt(keystoreD, process.env['AVAX']);
+  account = keyD.privateKey
+  bot = process.env['DEV_BOT']
+  referal = process.env['REF']
+}
+else {
+  account = process.env['DEV']
+  bot = process.env['DEV_BOT']
+  referal = process.env['REF']
+}
 
 /**
  * @type import('hardhat/config').HardhatUserConfig
@@ -48,7 +73,7 @@ module.exports = {
       url: 'https://api.avax.network/ext/bc/C/rpc',
       gasPrice: 225000000000,
       chainId: 43114,
-      accounts: []
+      accounts: [ account ]
     }
   },
   mocha: {

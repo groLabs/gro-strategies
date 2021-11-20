@@ -19,6 +19,13 @@ interface IUni {
         address _to,
         uint256 _deadline
     ) external returns (uint256[] memory amounts);
+
+    function swapExactAVAXForTokens(
+        uint256 _amountOutMin,
+        address[] calldata _path,
+        address _to,
+        uint256 _deadline
+    ) external payable returns (uint[] memory amounts);  
 }
 
 // Uniswap pool interface
@@ -104,7 +111,7 @@ interface IMasterChef {
 
 /* @notice AHv2Farmer - Alpha Homora V2 yield aggregator strategy
  *
- *      Farming AHv2 Stable/ETH positions.
+ *      Farming AHv2 Stable/AVAX positions.
  *
  *  ###############################################
  *      Strategy overview
@@ -116,7 +123,7 @@ interface IMasterChef {
  *      on users positions in various AMMs. The gro alpha homora v2 strategy (referred to as the strategy)
  *      aim to utilize AHv2 leverage to create and maintain market neutral positions (2x leverage)
  *      for as long as they are deemed profitable. This means that the strategy will supply want (stable coin)
- *      to AH, and borrow eth in a proportional amount. Under certian circumstances the strategy will stop
+ *      to AH, and borrow avax in a proportional amount. Under certian circumstances the strategy will stop
  *      it's borrowing, but will not ever attempt to borrow want from AH.
  *
  *  ###############################################
@@ -148,22 +155,21 @@ contract AHv2Farmer is BaseStrategy {
     uint256 public constant DEFAULT_DECIMALS_FACTOR = 1E18;
     uint256 public constant PERCENTAGE_DECIMAL_FACTOR = 1E4;
     // collateral constants - The collateral ratio is calculated by using
-    // the homoraBank to establish the eth value of the debts vs the eth value
+    // the homoraBank to establish the AVAX value of the debts vs the AVAX value
     // of the collateral.
-    // !!!Change these to constant values - these are left as non constant for testing purposes!!!
     uint256 public targetCollateralRatio = 7950; // ideal collateral ratio
     uint256 public collateralThreshold = 8900; // max collateral raio
     // LP Pool token
     IUniPool public immutable pool;
-    address public constant weth =
+    address public constant wavax =
         address(0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7);
     // Full repay
     uint256 constant REPAY = type(uint256).max;
 
-    // Uni or Sushi swap router
-    address public immutable uniSwapRouter;
+    // UniV2 or Sushi swap style router
+    IUni public immutable uniSwapRouter;
     // comment out if uniSwap spell is used
-    address public constant sushi =
+    address public constant yieldToken =
         address(0x6e84a6216eA6dACC71eE8E6b0a5B7322EEbC0fDd);
     address public constant homoraBank =
         address(0x376d16C7dE138B01455a51dA79AD65806E9cd694);
@@ -175,14 +181,14 @@ contract AHv2Farmer is BaseStrategy {
 
     // strategies current position
     uint256 public activePosition;
-    // How much change we accept in eth price before closing or adjusting the position
+    // How much change we accept in AVAX price before closing or adjusting the position
     uint256 public ilThreshold;
 
     // Min amount of tokens to open/adjust positions or sell
     uint256 public minWant;
-    uint256 public constant minEthToSell = 0;
+    uint256 public constant minAVAXToSell = 0;
     // comment out if uniSwap spell is used
-    uint256 public constant minSushiToSell = 0;
+    uint256 public constant minYieldTokenToSell = 0;
 
     // Limits the size of a position based on how much is available to borrow
     uint256 public borrowLimit;
@@ -205,8 +211,8 @@ contract AHv2Farmer is BaseStrategy {
         uint256[] debts,
         bool withdrawal
     );
-    event LogEthSold(uint256[] ethSold);
-    event LogSushiSold(uint256[] sushiSold);
+    event LogAVAXSold(uint256[] AVAXSold);
+    event LogYieldTokenSold(uint256[] yieldTokenSold);
 
     event NewFarmer(
         address vault,
@@ -221,9 +227,9 @@ contract AHv2Farmer is BaseStrategy {
     event LogNewBorrowLimit(uint256 newLimit);
 
     struct positionData {
-        uint256[] wantClose; // eth value of position when closed [want => eth]
+        uint256[] wantClose; // AVAX value of position when closed [want => AVAX]
         uint256 totalClose; // total value of position on close
-        uint256[] wantOpen; // eth value of position when opened [want => eth]
+        uint256[] wantOpen; // AVAX value of position when opened [want => AVAX]
         uint256 collId; // collateral ID
         uint256 collateral; // collateral amount
         uint256[] debt; // borrowed token amount
@@ -252,17 +258,14 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     // strategy positions
-    mapping(uint256 => positionData) positions;
+    mapping(uint256 => positionData) public positions;
 
     // function headers for generating signatures for encoding function calls
     // AHv2 homorabank uses encoded spell function calls in order to cast spells
-    string constant sushiOpen =
+    string constant spellOpen =
         "addLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256),uint256)";
-    string constant sushiClose =
+    string constant spellClose =
         "removeLiquidityWMasterChef(address,address,(uint256,uint256,uint256,uint256,uint256,uint256,uint256))";
-    // function for selling eth for want (uniswap router)
-    string constant ethForTokens =
-        "swapExactAVAXForTokens(uint256,address[],address,uint256)";
 
     // poolId for masterchef - can be commented out for non sushi spells
     uint256 immutable poolId;
@@ -278,10 +281,10 @@ contract AHv2Farmer is BaseStrategy {
         debtThreshold = 1_000_000 * 1e18;
         // approve the homora bank to use our want
         want.safeApprove(homoraBank, type(uint256).max);
-        // approve the router to user our sushi
-        IERC20(sushi).safeApprove(_router, type(uint256).max);
+        // approve the router to use our yieldToken
+        IERC20(yieldToken).safeApprove(_router, type(uint256).max);
         spell = _spell;
-        uniSwapRouter = _router;
+        uniSwapRouter = IUni(_router);
         pool = IUniPool(_pool);
         poolId = _poolId;
 
@@ -298,7 +301,7 @@ contract AHv2Farmer is BaseStrategy {
         return "AHv2 strategy";
     }
 
-    // Strategy will recieve eth from closing/adjusting positions, do nothing with the eth here
+    // Strategy will recieve AVAX from closing/adjusting positions, do nothing with the AVAX here
     receive() external payable {}
 
     /*
@@ -331,41 +334,40 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
-     * @notice Estimate amount of sushi tokens that will be claimed if position is closed
+     * @notice Estimate amount of yield tokens that will be claimed if position is closed
      * @param _positionId ID of a AHv2 position
      */
-    function pendingSushi(uint256 _positionId) public view returns (uint256) {
+    function pendingYieldToken(uint256 _positionId) public view returns (uint256) {
         if (_positionId == 0) {
             return 0;
         }
         uint256 _collId = positions[_positionId].collId;
         // get balance of collateral
-        // uint256 amount = wChef.balanceOf(homoraBank, _collId);
         uint256 amount = positions[_positionId].collateral;
-        (uint256 pid, uint256 stSushiPerShare) = wMasterChef.decodeId(_collId);
-        (, , , uint256 enSushiPerShare) = IMasterChef(masterChef).poolInfo(pid);
-        uint256 stSushi = (stSushiPerShare * amount - 1) / 1e12;
-        uint256 enSushi = (enSushiPerShare * amount) / 1e12;
-        if (enSushi > stSushi) {
-            return enSushi - stSushi;
+        (uint256 pid, uint256 stYieldTokenPerShare) = wMasterChef.decodeId(_collId);
+        (, , , uint256 enYieldTokenPerShare) = IMasterChef(masterChef).poolInfo(pid);
+        uint256 stYieldToken = (stYieldTokenPerShare * amount - 1) / 1e12;
+        uint256 enYieldToken = (enYieldTokenPerShare * amount) / 1e12;
+        if (enYieldToken > stYieldToken) {
+            return enYieldToken - stYieldToken;
         }
         return 0;
     }
 
     /*
-     * @notice Estimate price of sushi tokens
+     * @notice Estimate price of yield tokens
      * @param _positionId ID active position
-     * @param _balance contracts current sushi token balance
+     * @param _balance contracts current yield token balance
      */
-    function _valueOfSushi(uint256 _positionId, uint256 _balance)
+    function _valueOfYieldToken(uint256 _positionId, uint256 _balance)
         internal
         view
         returns (uint256)
     {
-        uint256 estimatedSushi = pendingSushi(_positionId) + _balance;
-        if (estimatedSushi > 0) {
-            uint256[] memory sushiWantValue = _uniPrice(estimatedSushi, sushi);
-            return sushiWantValue[1];
+        uint256 estimatedYieldToken = pendingYieldToken(_positionId) + _balance;
+        if (estimatedYieldToken > 0) {
+            uint256[] memory yieldTokenWantValue = _uniPrice(estimatedYieldToken, yieldToken);
+            return yieldTokenWantValue[1];
         } else {
             return 0;
         }
@@ -376,15 +378,15 @@ contract AHv2Farmer is BaseStrategy {
      *      from the current position.
      *      Removing from position:
      *          Removals will occur when the vault adapter atempts to withdraw assets from the strategy,
-     *          the position will attempt to withdraw only want. If eth ends up being withdrawn, this will
+     *          the position will attempt to withdraw only want. If AVAX ends up being withdrawn, this will
      *          not be sold when adjusting the position.
      *      Adding to position:
      *          If additional funds have been funneled into the strategy, and a position already is running,
      *          the strategy will add the available funds to the strategy. This adjusts the current position
      *          impermanent loss and the positions price in relation to calculate the ilThreshold
      * @param _positionId ID of active position
-     * @param amounts amount to adjust position by [want, eth], when withdrawing we will atempt to repay
-     *      the eth amount, when adding we will borrow this amount
+     * @param amounts amount to adjust position by [want, AVAX], when withdrawing we will atempt to repay
+     *      the AVAX amount, when adding we will borrow this amount
      * @param _collateral collateral to remove (0 if adding to position)
      * @param _borrow Will we atempt to borrow when adding to the position
      * @param _withdraw Will we add to or remove assets from the position
@@ -414,7 +416,7 @@ contract AHv2Farmer is BaseStrategy {
             IHomora(homoraBank).execute(
                 _positionId,
                 spell,
-                abi.encodeWithSignature(sushiClose, address(want), weth, amt)
+                abi.encodeWithSignature(spellClose, address(want), wavax, amt)
             );
             // adjust by adding
         } else {
@@ -423,9 +425,9 @@ contract AHv2Farmer is BaseStrategy {
                 _positionId,
                 spell,
                 abi.encodeWithSignature(
-                    sushiOpen,
+                    spellOpen,
                     address(want),
-                    weth,
+                    wavax,
                     amt,
                     poolId
                 )
@@ -445,7 +447,7 @@ contract AHv2Farmer is BaseStrategy {
         uint256 positionId = IHomora(homoraBank).execute(
             0,
             spell,
-            abi.encodeWithSignature(sushiOpen, address(want), weth, amt, poolId)
+            abi.encodeWithSignature(spellOpen, address(want), wavax, amt, poolId)
         );
         _setPositionData(positionId, amounts, true, false);
     }
@@ -507,7 +509,7 @@ contract AHv2Farmer is BaseStrategy {
      * @notice Manually wind down an AHv2 position
      * @param _positionId ID of position to close
      * @param _check amount used to check AMM
-     * @param _minAmount min amount to expect back from AMM (ETH)
+     * @param _minAmount min amount to expect back from AMM (AVAX)
      */
     function forceClose(
         uint256 _positionId,
@@ -532,7 +534,7 @@ contract AHv2Farmer is BaseStrategy {
         if (!_force) {
             uint256[] memory debts = pd.debt;
             // Calculate amount we expect to get out by closing the position
-            // Note, expected will be [eth, want], as debts always will be [eth] and solidity doesnt support
+            // Note, expected will be [AVAX, want], as debts always will be [AVAX] and solidity doesnt support
             // sensible operations like [::-1] or zip...
             amt = _formatClose(
                 _calcAvailable(collateral, debts),
@@ -546,9 +548,9 @@ contract AHv2Farmer is BaseStrategy {
         IHomora(homoraBank).execute(
             _positionId,
             spell,
-            abi.encodeWithSignature(sushiClose, address(want), weth, amt)
+            abi.encodeWithSignature(spellClose, address(want), wavax, amt)
         );
-        // Do not sell after closing down the position, eth/sushi are sold during
+        // Do not sell after closing down the position, AVAX/yieldToken are sold during
         //  the early stages for the harvest flow (see prepareReturn)
         // total amount of want retrieved from position
         wantBal = want.balanceOf(address(this)) - wantBal;
@@ -562,67 +564,83 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
-     * @notice sell the contracts eth for want if there enough to justify the sell
+     * @notice Manually sell AVAX
+     * @param _minAmount min amount to recieve from the AMM
+     */
+    function sellAVAX(uint256 _minAmount) external onlyAuthorized {
+        _sellAVAX(false, _minAmount);
+    }
+
+    /*
+     * @notice sell the contracts AVAX for want if there enough to justify the sell
      * @param _useMinThreshold Use min threshold when selling, or sell everything
      */
-    function _sellEth(bool _useMinThreshold)
+    function _sellAVAX(bool _useMinThreshold, uint256 _minAmount)
         internal
         returns (uint256[] memory)
     {
         uint256 balance = address(this).balance;
 
-        // check if we have enough eth to sell
-        if (balance == 0) return new uint256[](2);
-        else if (_useMinThreshold && (balance < minEthToSell))
+        // check if we have enough AVAX to sell
+        if (balance == 0) {
             return new uint256[](2);
+        } else if (_useMinThreshold && (balance < minAVAXToSell)) {
+            return new uint256[](2);
+        }
         address[] memory path = new address[](2);
-        path[0] = weth;
+        path[0] = wavax;
         path[1] = address(want);
 
-        uint256[] memory amounts = _uniPrice(balance, weth);
-        // Use a call to the uniswap router contract to swap exact eth for want
+        
+        // Use a call to the uniswap router contract to swap exact AVAX for want
         // note, minwant could be set to 0 here as it doesnt matter, this call
         // cannot prevent any frontrunning and the transaction should be executed
-        // using a private host.
-        (bool success, ) = uniSwapRouter.call{value: balance}(
-            abi.encodeWithSignature(
-                ethForTokens,
-                0,
+        // using a private host. When lacking a private host it needs to rely on the
+        // AMM check or ues the manual see function between harvest.
+        uint256[] memory amounts = uniSwapRouter.swapExactAVAXForTokens{value:balance}(
+                _minAmount,
                 path,
                 address(this),
                 block.timestamp
-            )
         );
-        require(success, "_sellEth: Eth swap to want failed");
-        emit LogEthSold(amounts);
+        emit LogAVAXSold(amounts);
         return amounts;
     }
 
     /*
-     * @notice sell the contracts sushi for want if there enough to justify the sell - can remove this method if uni swap spell
+     * @notice Manually sell yield tokens
+     * @param _minAmount min amount to recieve from the AMM
+     */
+    function sellYieldToken(uint256 _minAmount) external onlyAuthorized {
+        _sellYieldToken(false, _minAmount);
+    }
+
+    /*
+     * @notice sell the contracts yield tokens for want if there enough to justify the sell - can remove this method if uni swap spell
      * @param _useMinThreshold Use min threshold when selling, or sell everything
      */
-    function _sellSushi(bool _useMinThreshold)
+    function _sellYieldToken(bool _useMinThreshold, uint256 _minAmount)
         internal
         returns (uint256[] memory)
     {
-        uint256 balance = IERC20(sushi).balanceOf(address(this));
-        if (balance == 0) return new uint256[](2);
-        else if (_useMinThreshold && (balance < minSushiToSell))
+        uint256 balance = IERC20(yieldToken).balanceOf(address(this));
+        if (balance == 0) {
             return new uint256[](2);
+        } else if (_useMinThreshold && (balance < minYieldTokenToSell)) {
+            return new uint256[](2);
+        }
         address[] memory path = new address[](2);
-        path[0] = sushi;
+        path[0] = yieldToken;
         path[1] = address(want);
 
-        uint256[] memory amounts = _uniPrice(balance, sushi);
-        IUni(uniSwapRouter).swapExactTokensForTokens(
-            amounts[0],
-            0,
+        uint256[] memory amounts = uniSwapRouter.swapExactTokensForTokens(
+            balance,
+            _minAmount,
             path,
             address(this),
             block.timestamp
         );
-        emit LogSushiSold(amounts);
+        emit LogYieldTokenSold(amounts);
         return amounts;
     }
 
@@ -670,17 +688,17 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
-     * @notice calculate want and eth value of lp position
+     * @notice calculate want and AVAX value of lp position
      *      value of lp is defined by (in uniswap routerv2):
      *          lp = Math.min(input0 * poolBalance / reserve0, input1 * poolBalance / reserve1)
      *      which in turn implies:
      *          input0 = reserve0 * lp / poolBalance
      *          input1 = reserve1 * lp / poolBalance
      * @param _collateral lp amount
-     * @dev Note that we swap the order of want and eth in the return array, this is because
-     *      the debt position always will be in eth, and to save gas we dont add a 0 value for the
-     *      want debt. So when doing repay calculations we need to remove the debt from the eth amount,
-     *      which becomes simpler if the eth position comes first.
+     * @dev Note that we swap the order of want and AVAX in the return array, this is because
+     *      the debt position always will be in AVAX, and to save gas we dont add a 0 value for the
+     *      want debt. So when doing repay calculations we need to remove the debt from the AVAX amount,
+     *      which becomes simpler if the AVAX position comes first.
      */
     function _calcLpPosition(uint256 _collateral)
         internal
@@ -704,11 +722,11 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
-     * @notice calc want value of eth
-     * @param _eth amount amount of eth
+     * @notice calc want value of AVAX
+     * @param _AVAX amount amount of AVAX
      */
-    function _calcWant(uint256 _eth) private view returns (uint256) {
-        uint256[] memory swap = _uniPrice(_eth, weth);
+    function _calcWant(uint256 _AVAX) private view returns (uint256) {
+        uint256[] memory swap = _uniPrice(_AVAX, wavax);
         return swap[1];
     }
 
@@ -728,12 +746,12 @@ contract AHv2Farmer is BaseStrategy {
         address[] memory path = new address[](2);
         if (_start == address(want)) {
             path[0] = _start;
-            path[1] = weth;
+            path[1] = wavax;
         } else {
             path[0] = _start;
             path[1] = address(want);
         }
-        uint256[] memory amounts = IUni(uniSwapRouter).getAmountsOut(
+        uint256[] memory amounts = uniSwapRouter.getAmountsOut(
             _amount,
             path
         );
@@ -759,22 +777,23 @@ contract AHv2Farmer is BaseStrategy {
         returns (uint256, uint256)
     {
         // get the value of the current position supplied by this strategy (total - borrowed)
-        uint256 sushiBalance = IERC20(sushi).balanceOf(address(this));
-        uint256[] memory _valueOfEth = _uniPrice(address(this).balance, weth);
+        uint256 yieldTokenBalance = IERC20(yieldToken).balanceOf(address(this));
+        uint256[] memory _valueOfAVAX = _uniPrice(address(this).balance, wavax);
         uint256 _reserve = want.balanceOf(address(this));
 
-        if (_positionId == 0)
+        if (_positionId == 0) {
             return (
-                _valueOfSushi(_positionId, sushiBalance) +
-                    _valueOfEth[1] +
+                _valueOfYieldToken(_positionId, yieldTokenBalance) +
+                    _valueOfAVAX[1] +
                     _reserve,
                 _reserve
             );
+        }
         return (
             _reserve +
                 _calcEstimatedWant(_positionId) +
-                _valueOfSushi(_positionId, sushiBalance) +
-                _valueOfEth[1],
+                _valueOfYieldToken(_positionId, yieldTokenBalance) +
+                _valueOfAVAX[1],
             _reserve
         );
     }
@@ -796,7 +815,7 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
-     * @notice get collateral and borrowed eth value of position
+     * @notice get collateral and borrowed AVAX value of position
      * @dev This value is based on Alpha homoras calculation which can
      *     be found in the homoraBank and homora Oracle (0xeed9cfb1e69792aaee0bf55f6af617853e9f29b8)
      *     (tierTokenFactors). This value can range from 0 to > 10000, where 10000 indicates liquidation
@@ -829,8 +848,8 @@ contract AHv2Farmer is BaseStrategy {
         uint256 _positionId = activePosition;
         if (_positionId == 0) {
             // only try to sell if there is no active position
-            _sellEth(true);
-            _sellSushi(true);
+            _sellAVAX(true, 0);
+            _sellYieldToken(true, 0);
             uint256 _wantBalance = want.balanceOf(address(this));
             _debtPayment = Math.min(_wantBalance, _debtOutstanding);
             return (_profit, _loss, _debtPayment);
@@ -891,20 +910,20 @@ contract AHv2Farmer is BaseStrategy {
      * @notice calculate how much expected returns we will get when closing down our position,
      *      this involves calculating the value of the collateral for the position (lp),
      *      and repaying the existing debt to Alpha homora. Two potential outcomes can come from this:
-     *          - the position returns more eth than debt:
-     *              in which case the strategy will collect the eth and atempt to sell it
-     *          - the position returns less eth than the debt:
-     *              Alpha homora will repay the debt by swapping part of the want to eth, we
+     *          - the position returns more AVAX than debt:
+     *              in which case the strategy will collect the AVAX and atempt to sell it
+     *          - the position returns less AVAX than the debt:
+     *              Alpha homora will repay the debt by swapping part of the want to AVAX, we
      *              need to reduce the expected return amount of want by how much we will have to repay
      * @param _collateral lp value of position
-     * @param _debts debts to repay (should always be eth)
+     * @param _debts debts to repay (should always be AVAX)
      */
     function _calcAvailable(uint256 _collateral, uint256[] memory _debts)
         private
         view
         returns (uint256[] memory)
     {
-        // get underlying value of lp postion [eth, want]
+        // get underlying value of lp postion [AVAX, want]
         uint256[] memory lpPosition = _calcLpPosition(_collateral);
         uint256[] memory expected = new uint256[](2);
 
@@ -916,17 +935,17 @@ contract AHv2Farmer is BaseStrategy {
             (lpPosition[1] * (PERCENTAGE_DECIMAL_FACTOR - 100)) /
             PERCENTAGE_DECIMAL_FACTOR;
 
-        // if the eth debt is greater than the positions eth value, we need to reduce the the expected want by the amount
-        // that will be used to repay the whole eth loan
+        // if the AVAX debt is greater than the positions AVAX value, we need to reduce the the expected want by the amount
+        // that will be used to repay the whole AVAX loan
         if (lpPosition[0] < _debts[0]) {
             uint256[] memory change = _uniPrice(
                 _debts[0] - lpPosition[0],
-                weth
+                wavax
             );
             expected[1] = lpPosition[1] - change[1];
             expected[0] = 0;
         } else {
-            // repay eth debt
+            // repay AVAX debt
             expected[0] = lpPosition[0] - _debts[0];
             expected[1] = lpPosition[1];
         }
@@ -944,18 +963,18 @@ contract AHv2Farmer is BaseStrategy {
         returns (uint256)
     {
         positionData storage pos = positions[_positionId];
-        // get underlying value of lp postion [eth, want]
+        // get underlying value of lp postion [AVAX, want]
         uint256[] memory lpPosition = _calcLpPosition(pos.collateral);
         uint256[] memory debt = pos.debt;
-        int256 ethPosition = int256(lpPosition[0]) - int256(debt[0]);
+        int256 AVAXPosition = int256(lpPosition[0]) - int256(debt[0]);
         return
-            (ethPosition > 0)
-                ? lpPosition[1] + _calcWant(uint256(ethPosition))
-                : lpPosition[1] - _calcWant(uint256(ethPosition * -1));
+            (AVAXPosition > 0)
+                ? lpPosition[1] + _calcWant(uint256(AVAXPosition))
+                : lpPosition[1] - _calcWant(uint256(AVAXPosition * -1));
     }
 
     /*
-     * @notice Calculate how much eth needs to be provided for a set amount of want
+     * @notice Calculate how much AVAX needs to be provided for a set amount of want
      *      when adding liquidity - This is used to estimate how much to borrow from AH.
      *      We need to get amtA * resB - amtB * resA = 0 to solve the AH optimal swap
      *      formula for 0, so we use same as uniswap rouer quote function:
@@ -998,7 +1017,7 @@ contract AHv2Farmer is BaseStrategy {
     {
         uint256 _amountFreed = 0;
         uint256 _loss = 0;
-        // want in contract + want value of position based of eth value of position (total - borrowed)
+        // want in contract + want value of position based of AVAX value of position (total - borrowed)
         uint256 _positionId = activePosition;
 
         (uint256 assets, uint256 _balance) = _estimatedTotalAssets(_positionId);
@@ -1021,8 +1040,8 @@ contract AHv2Farmer is BaseStrategy {
             if (activePosition != 0) {
                 _closePosition(_positionId, false);
             }
-            _sellEth(false);
-            _sellSushi(false);
+            _sellAVAX(false, 0);
+            _sellYieldToken(false, 0);
             _amountFreed = Math.min(
                 _amountNeeded,
                 want.balanceOf(address(this))
@@ -1129,7 +1148,7 @@ contract AHv2Farmer is BaseStrategy {
                     return;
                     // collateral factor is bad (5% above target), dont loan any more assets
                 } else if (changeFactor > 500) {
-                    // we expect to swap out half of the want to eth
+                    // we expect to swap out half of the want to AVAX
                     (uint256[] memory newPosition, ) = _calcSingleSidedLiq(
                         (_wantBal) / 2,
                         false
@@ -1139,7 +1158,7 @@ contract AHv2Farmer is BaseStrategy {
                 } else {
                     // TODO logic to lower the colateral ratio
                     // When adding to the position we will try to stabilize the collateralization ratio, this
-                    //  will be possible if we owe more than originally, as we just need to borrow less ETH
+                    //  will be possible if we owe more than originally, as we just need to borrow less AVAX
                     //  from AHv2. The opposit will currently not work as we want to avoid taking on want
                     //  debt from AHv2.
 
@@ -1173,7 +1192,7 @@ contract AHv2Farmer is BaseStrategy {
         returns (address[] memory)
     {
         address[] memory protected = new address[](1);
-        protected[0] = sushi;
+        protected[0] = yieldToken;
         return protected;
     }
 
@@ -1202,8 +1221,8 @@ contract AHv2Farmer is BaseStrategy {
      */
     function _prepareMigration(address _newStrategy) internal override {
         require(activePosition == 0, "prepareMigration: active position");
-        _sellEth(false);
-        _sellSushi(false);
+        _sellAVAX(false, 0);
+        _sellYieldToken(false, 0);
     }
 
     /*

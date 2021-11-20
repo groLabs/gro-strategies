@@ -506,12 +506,12 @@ contract('Alpha homora test', function (accounts) {
         await usdcAdaptor.strategyHarvest(0, 0, 0, {from: governance});
         const position = await primaryStrategy.activePosition();
         await masterChef.methods.updatePool(39).send({from: governance});
-        const initSushi =  await primaryStrategy.pendingSushi(position);
+        const initSushi =  await primaryStrategy.pendingYieldToken(position);
         for (let i = 0; i < 10; i++) {
           await network.provider.send("evm_mine");
         }
         await masterChef.methods.updatePool(39).send({from: governance});
-        return expect(primaryStrategy.pendingSushi(position)).to.eventually.be.a.bignumber.gt(initSushi);
+        return expect(primaryStrategy.pendingYieldToken(position)).to.eventually.be.a.bignumber.gt(initSushi);
     })
 
     // Sell assets
@@ -524,7 +524,7 @@ contract('Alpha homora test', function (accounts) {
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
 
         await masterChef.methods.updatePool(39).send({from: governance});
-        const initSushi =  await primaryStrategy.pendingSushi(position);
+        const initSushi =  await primaryStrategy.pendingYieldToken(position);
         for (let i = 0; i < 1000; i++) {
           await network.provider.send("evm_mine");
         }
@@ -571,7 +571,7 @@ contract('Alpha homora test', function (accounts) {
         await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.equal(expected);
         // update sushi rewards
         await masterChef.methods.updatePool(39).send({from: governance});
-        const initSushi =  await primaryStrategy.pendingSushi(position);
+        const initSushi =  await primaryStrategy.pendingYieldToken(position);
         // pass 10 blocks
         for (let i = 0; i < 10; i++) {
           await network.provider.send("evm_mine");
