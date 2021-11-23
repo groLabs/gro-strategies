@@ -1,5 +1,4 @@
 require('@nomiclabs/hardhat-truffle5')
-require('@nomiclabs/hardhat-vyper')
 require('@nomiclabs/hardhat-web3')
 require('hardhat-gas-reporter')
 require('@nomiclabs/hardhat-ethers')
@@ -81,8 +80,5 @@ module.exports = {
         }
       }
     ]
-  },
-  vyper: {
-    version: '0.2.8',
-  },
+  }
 }
