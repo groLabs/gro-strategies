@@ -959,11 +959,17 @@ async function investVaults(controller) {
 }
 
 const tokens = {
-        dai: { address: '0xd586E7F844cEa2F87f50152665BCbc2C279D8d70', name: "Dai", symbol: "DAI", decimals: 18, mappingSlot: '0x0' },
-        usdc: { address: '0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664', name: "USD Coin", symbol: "USDC", decimals: 6, mappingSlot: '0x0' },
-        usdt: { address: '0xc7198437980c041c805A1EDcbA50c1Ce5db95118', name: "Tether USD", symbol: "USDT", decimals: 6, mappingSlot: '0x0' },
-        avax: { address: '0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7', name: "Wrapped AVAX", symbol: "AVAX", decimals: 18, mappingSlot: '0x3' },
+	dai: { address: '0xd586E7F844cEa2F87f50152665BCbc2C279D8d70', name: "Dai", symbol: "DAI", decimals: 18, mappingSlot: '0x0' },
+	usdc: { address: '0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664', name: "USD Coin", symbol: "USDC", decimals: 6, mappingSlot: '0x0' },
+	usdt: { address: '0xc7198437980c041c805A1EDcbA50c1Ce5db95118', name: "Tether USD", symbol: "USDT", decimals: 6, mappingSlot: '0x0' },
+	avax: { address: '0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7', name: "Wrapped AVAX", symbol: "AVAX", decimals: 18, mappingSlot: '0x3' },
 };
+
+const vaults = {
+	daiVault: { address: '0x0B2E717e1f11c8294A655D6A235F8D1AD7ef395a', name: "Gro DAI.e LAB", symbol: "groDAI.e", decimals: 18, mappingSlot: '0x9' },
+	usdcVault: { address: '0x48cB6fD436D34A909523A74de8f82d6bF59E6A3C', name: "Gro USDC.e LAB", symbol: "groUSDC.e", decimals: 6, mappingSlot: '0x9' },
+	usdtVault: { address: '0x720e5ecfe240a65ca236e5Ec626f91036Ecc260d', name: "Gro USDT.e LAB", symbol: "groUSDT.e", decimals: 6, mappingSlot: '0x9' },
+}
 
 function getBalanceOfSlotSolidity(mappingSlot, address) {
         return ethers.utils.hexStripZeros(ethers.utils.keccak256(ethers.utils.defaultAbiCoder.encode(['address', 'uint256'], [address, mappingSlot])));
@@ -971,13 +977,20 @@ function getBalanceOfSlotSolidity(mappingSlot, address) {
 }
 
 async function setBalance(tokenSymbol, to, amount) {
-        const amountToMint = web3.utils.padLeft(ethers.utils.parseUnits(amount, tokens[tokenSymbol].decimals ).toHexString(), 64);
-        const slot = getBalanceOfSlotSolidity(tokens[tokenSymbol].mappingSlot, to);
-        await hre.ethers.provider.send('hardhat_setStorageAt', [tokens[tokenSymbol].address, slot, amountToMint]);
+    const amountToMint = web3.utils.padLeft(ethers.utils.parseUnits(amount, tokens[tokenSymbol].decimals ).toHexString(), 64);
+    const slot = getBalanceOfSlotSolidity(tokens[tokenSymbol].mappingSlot, to);
+    await hre.ethers.provider.send('hardhat_setStorageAt', [tokens[tokenSymbol].address, slot, amountToMint]);
 }
+
+async function setAllowance(vaultSymbol, to, amount) {
+    const amountToMint = web3.utils.padLeft(ethers.utils.parseUnits(amount, vaults[vaultSymbol].decimals ).toHexString(), 64);
+    const slot = getBalanceOfSlotSolidity(vaults[vaultSymbol].mappingSlot, to);
+    await hre.ethers.provider.send('hardhat_setStorageAt', [vaults[vaultSymbol].address, slot, amountToMint]);
+}
+
 const setStorageAt = async (address, index, value) => {
-      await ethers.provider.send("hardhat_setStorageAt", [address, index, value]);
-      await ethers.provider.send("evm_mine", []); // Just mines to the next block
+    await ethers.provider.send("hardhat_setStorageAt", [address, index, value]);
+    await ethers.provider.send("evm_mine", []); // Just mines to the next block
 };
 
 const toBytes32 = (bn) => {
@@ -1017,7 +1030,9 @@ module.exports = {
   investVaults,
   ZERO,
   tokens,
+  vaults,
   setBalance,
+  setAllowance,
   setStorageAt,
   toBytes32
 }
