@@ -258,7 +258,7 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     // strategy positions
-    mapping(uint256 => positionData) public positions;
+    mapping(uint256 => positionData) positions;
 
     // function headers for generating signatures for encoding function calls
     // AHv2 homorabank uses encoded spell function calls in order to cast spells
@@ -303,6 +303,11 @@ contract AHv2Farmer is BaseStrategy {
 
     // Strategy will recieve AVAX from closing/adjusting positions, do nothing with the AVAX here
     receive() external payable {}
+
+    // Default getter for public structs done return dynamics arrays, so we add this here
+    function getPosition(uint256 _positionId) external view returns (positionData memory) {
+        return positions[_positionId];
+    }
 
     /*
      * @notice set minimum want required to adjust position
@@ -1206,9 +1211,7 @@ contract AHv2Farmer is BaseStrategy {
         override
         returns (bool)
     {
-        if (activePosition == 0) {
-            if (want.balanceOf(address(this)) >= minWant) return true;
-        }
+        if (activePosition == 0) return false;
         if (volatilityCheck()) return true;
         if (_getCollateralFactor(activePosition) > collateralThreshold)
             return true;
