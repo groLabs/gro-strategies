@@ -548,9 +548,9 @@ contract('Alpha homora test', function (accounts) {
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
         await network.provider.send("evm_mine");
-        await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.gt(initSushi);
-        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.gt(initEth);
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        // eth and sushi sold off
+        await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
+        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
         await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.equal(toBN(0));
         await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(toBN(0), toBN(1E15));
 

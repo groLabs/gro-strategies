@@ -504,7 +504,7 @@ abstract contract BaseStrategy {
      *  called to report to the Vault on the Strategy's position, especially if
      *  any losses have occurred.
      */
-    function harvest() external {
+    function harvest() external virtual {
         require(msg.sender == address(vault), "harvest: !vault");
         uint256 profit = 0;
         uint256 loss = 0;

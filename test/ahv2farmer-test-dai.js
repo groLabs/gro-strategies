@@ -134,7 +134,7 @@ contract('Alpha homora test', function (accounts) {
     // add strategy to whitelist in homorabank and gov to whitelist in adapter so they can call harvest
     await web3.eth.sendTransaction({to: AHGov, from: accounts[0], value: toWei('1', 'ether')})
     await homoraBank.methods.setWhitelistUsers([primaryStrategy.address], [true]).send({from: AHGov})
-    await homoraBank.methods.setCreditLimits([[primaryStrategy.address, avax.address, toBN(1E18).mul(toBN(1E10)).toString()]]).send({from: AHGov})
+    await homoraBank.methods.setCreditLimits([[primaryStrategy.address, avax.address, toBN(1E18).mul(toBN(1E18)).toString()]]).send({from: AHGov})
     await daiAdaptor.addToWhitelist(governance, {from: governance});
 
     await daiAdaptor.setDepositLimit(constants.MAX_UINT256, {from: governance});
@@ -548,9 +548,9 @@ contract('Alpha homora test', function (accounts) {
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
         await network.provider.send("evm_mine");
-        await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.gt(initSushi);
-        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.gt(initEth);
-        await daiAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        // eth and sushi sold off
+        await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
+        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
         await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.equal(toBN(0));
         await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(toBN(0), toBN(1E15));
 
