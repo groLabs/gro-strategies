@@ -716,13 +716,11 @@ contract AHv2Farmer is BaseStrategy {
         uint256[] memory lpPosition = new uint256[](2);
 
         lpPosition[1] =
-            ((_collateral * uint256(resA) * DEFAULT_DECIMALS_FACTOR) /
-                poolBalance) /
-            DEFAULT_DECIMALS_FACTOR;
+            (_collateral * uint256(resA) /
+                poolBalance);
         lpPosition[0] =
-            ((_collateral * uint256(resB) * DEFAULT_DECIMALS_FACTOR) /
-                poolBalance) /
-            DEFAULT_DECIMALS_FACTOR;
+            (_collateral * uint256(resB) /
+                poolBalance);
 
         return lpPosition;
     }
@@ -877,7 +875,6 @@ contract AHv2Farmer is BaseStrategy {
                 _profit = balance - debt;
             } else {
                 _loss = debt - balance;
-                _debtPayment = Math.min(balance, _debtOutstanding);
             }
         }
     }
