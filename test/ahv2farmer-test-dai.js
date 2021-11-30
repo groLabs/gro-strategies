@@ -308,7 +308,8 @@ contract('Alpha homora test', function (accounts) {
         await primaryStrategy.setBorrowLimit(borrowLimit, {from: governance});
 
         // add 1M to daiAdaptor
-        await setBalance('dai', daiAdaptor.address, '100000');
+        await setBalance('dai', investor1, '100000');
+        await daiAdaptor.deposit(toBN('100000').mul(toBN(1E18)), {from: investor1})
         // adjust the position, should take on more debt as the collateral ratio is fine
         await daiAdaptor.strategyHarvest(0, 0, 0, {from: governance})
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
@@ -549,6 +550,7 @@ contract('Alpha homora test', function (accounts) {
         const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
         await network.provider.send("evm_mine");
         // eth and sushi sold off
+        console.log((await primaryStrategy.activePosition()).toString())
         await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
         await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
         await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.equal(toBN(0));
@@ -560,7 +562,7 @@ contract('Alpha homora test', function (accounts) {
     // should be able to estiamte totalAsset changes
     it('Should estimate totalAssets', async () => {
         const sid = await snapshotChain();
-        const amount = '100000'
+        const amount = '10000'
         await setBalance('dai', daiAdaptor.address, amount);
         await daiAdaptor.strategyHarvest(0, 0, 0, {from: governance});
         const position = await primaryStrategy.activePosition();

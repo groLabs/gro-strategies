@@ -536,11 +536,12 @@ contract AHv2Farmer is BaseStrategy {
         RepayAmounts memory amt;
         if (!_force) {
             uint256[] memory debts = pd.debt;
-            // Calculate amount we expect to get out by closing the position
+            // Calculate amount we expect to get out by closing the position (applying 0.5% slippage)
             // Note, expected will be [AVAX, want], as debts always will be [AVAX] and solidity doesnt support
             // sensible operations like [::-1] or zip...
+            (uint256[] memory minAmount, ) = _calcAvailable(collateral * (PERCENTAGE_DECIMAL_FACTOR - 50) / PERCENTAGE_DECIMAL_FACTOR, debts);
             amt = _formatClose(
-                _calcAvailable(collateral, debts),
+                minAmount,
                 collateral,
                 0
             );
@@ -921,65 +922,31 @@ contract AHv2Farmer is BaseStrategy {
     function _calcAvailable(uint256 _collateral, uint256[] memory _debts)
         private
         view
-        returns (uint256[] memory)
+        returns (uint256[] memory, uint256)
     {
-        // get underlying value of lp postion [AVAX, want]
         uint256[] memory lpPosition = _calcLpPosition(_collateral);
-        uint256[] memory expected = new uint256[](2);
-
-        // standrad AH exit applies 1% slippage to close position
-        lpPosition[0] =
-            (lpPosition[0] * (PERCENTAGE_DECIMAL_FACTOR - 100)) /
-            PERCENTAGE_DECIMAL_FACTOR;
-        lpPosition[1] =
-            (lpPosition[1] * (PERCENTAGE_DECIMAL_FACTOR - 100)) /
-            PERCENTAGE_DECIMAL_FACTOR;
-
-        // if the AVAX debt is greater than the positions AVAX value, we need to reduce the the expected want by the amount
-        // that will be used to repay the whole AVAX loan
-        if (lpPosition[0] < _debts[0]) {
-            uint256[] memory change = _uniPrice(
-                _debts[0] - lpPosition[0],
-                wavax
-            );
-            expected[1] = lpPosition[1] - change[1];
-            expected[0] = 0;
+        uint256 posWant;
+        int256 AVAXPosition = int256(lpPosition[0]) - int256(_debts[0]);
+        
+        if (AVAXPosition > 0) {
+            posWant = _uniPrice(uint256(AVAXPosition), wavax)[1] + lpPosition[1];
+            lpPosition[0] = uint256(AVAXPosition);
         } else {
-            // repay AVAX debt
-            expected[0] = lpPosition[0] - _debts[0];
-            expected[1] = lpPosition[1];
+            lpPosition[1] -= _uniPrice(uint256(AVAXPosition * -1), wavax)[1];
+            lpPosition[0] = 0;
+            posWant = lpPosition[1];
         }
-
-        return expected;
+        return (lpPosition, posWant);
     }
 
-    /*
-     * @notice calculate how much want our collateral - debt is worth
-     * @param _positionId id of position
-     */
     function _calcEstimatedWant(uint256 _positionId)
         private
         view
         returns (uint256)
     {
-        PositionData storage pos = positions[_positionId];
-        // get underlying value of lp postion [AVAX, want]
-        uint256[] memory lpPosition = _calcLpPosition(pos.collateral);
-        uint256[] memory debt = pos.debt;
-        int256 AVAXPosition = int256(lpPosition[0]) - int256(debt[0]);
-        return
-            (AVAXPosition > 0)
-                ? lpPosition[1] + _calcWant(uint256(AVAXPosition))
-                : lpPosition[1] - _calcWant(uint256(AVAXPosition * -1));
-    }
-
-    /*
-     * @notice calc want value of AVAX
-     * @param _AVAX amount amount of AVAX
-     */
-    function _calcWant(uint256 _AVAX) private view returns (uint256) {
-        uint256[] memory swap = _uniPrice(_AVAX, wavax);
-        return swap[1];
+        PositionData storage pd = positions[_positionId];
+        (, uint256 estWant) =_calcAvailable(pd.collateral, pd.debt);
+        return estWant;
     }
 
     /*
@@ -1148,6 +1115,9 @@ contract AHv2Farmer is BaseStrategy {
                 //     uint256 newPercentage = (newPosition[0] * PERCENTAGE_DECIMAL_FACTOR / oldPrice[0])
                 // }
                 uint256 posWant = positions[_positionId].wantOpen[0];
+                if (posWant > borrowLimit) {
+                    _closePosition(_positionId, false);
+                }
                 _wantBal = _wantBal + posWant > borrowLimit
                     ? borrowLimit - posWant
                     : _wantBal;
@@ -1238,7 +1208,9 @@ contract AHv2Farmer is BaseStrategy {
      *  to take in profits, to borrow newly available funds from the Vault, or
      *  otherwise adjust its position. In other cases `harvest()` must be
      *  called to report to the Vault on the Strategy's position, especially if
-     *  any losses have occurred.
+     *  any losses have occurred. For the AHv2 strategy, the order of which
+     *  accounting vs. position changes are made depends on if the position
+     *  will be closed down or not.
      */
     function harvest() external override {
         require(msg.sender == address(vault), "harvest: !vault");
@@ -1246,7 +1218,10 @@ contract AHv2Farmer is BaseStrategy {
         uint256 loss = 0;
         uint256 debtOutstanding = vault.debtOutstanding();
         uint256 debtPayment = 0;
-        bool _volatilityCheck = volatilityCheck();
+        bool adjustFirst; 
+        
+        // Check if position needs to be closed before accounting
+        adjustFirst = _checkPositionHealth(activePosition);
         if (emergencyExit) {
             // Free up as much capital as possible
             uint256 totalAssets = estimatedTotalAssets();
@@ -1261,7 +1236,7 @@ contract AHv2Farmer is BaseStrategy {
             }
         } else {
             // Free up returns for Vault to pull
-            if (_volatilityCheck) {
+            if (adjustFirst) {
                 _adjustPosition(debtOutstanding);
             }
             (profit, loss, debtPayment) = _prepareReturn(debtOutstanding);
@@ -1272,11 +1247,21 @@ contract AHv2Farmer is BaseStrategy {
         debtOutstanding = vault.report(profit, loss, debtPayment);
 
         // Check if free returns are left, and re-invest them
-        if (!_volatilityCheck) {
+        if (!adjustFirst) {
             _adjustPosition(debtOutstanding);
         }
 
         emit Harvested(profit, loss, debtPayment, debtOutstanding);
+    }
+
+    function _checkPositionHealth(uint256 _positionId) internal view returns (bool) {
+        if (_positionId > 0) {
+            uint256 posWant = positions[_positionId].wantOpen[0];
+            if (posWant >= borrowLimit || volatilityCheck()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1288,24 +1273,12 @@ contract AHv2Farmer is BaseStrategy {
      *  the only consideration into issuing this trigger, for example if the
      *  position would be negatively affected if `harvest()` is not called
      *  shortly, then this can return `true` even if the keeper might be "at a
-     *  loss" (keepers are always reimbursed by Yearn).
+     *  loss".
      * @dev
      *  `_callCost` must be priced in terms of `want`.
      *
-     *  This call and `tendTrigger` should never return `true` at the
-     *  same time.
-     *
-     *  See `min/maxReportDelay`, `profitFactor`, `debtThreshold`
-     *  -controlled parameters that will influence whether this call
-     *  returns `true` or not. These parameters will be used in conjunction
-     *  with the parameters reported to the Vault (see `params`) to determine
-     *  if calling `harvest()` is merited.
-     *
      *  It is expected that an external system will check `harvestTrigger()`.
-     *  This could be a script run off a desktop or cloud bot (e.g.
-     *  https://github.com/iearn-finance/yearn-vaults/blob/master/scripts/keep.py),
-     *  or via an integration with the Keep3r network (e.g.
-     *  https://github.com/Macarse/GenericKeep3rV2/blob/master/contracts/keep3r/GenericKeep3rV2.sol).
+     *  This could be a script run off a desktop or cloud bot.
      * @param _callCost The keeper's estimated cast cost to call `harvest()`.
      * @return `true` if `harvest()` should be called, `false` otherwise.
      */
@@ -1320,8 +1293,7 @@ contract AHv2Farmer is BaseStrategy {
         // Should not trigger if Strategy is not activated
         if (params.activation == 0) return false;
 
-        if (volatilityCheck()) return true;
-
+        _checkPositionHealth(activePosition);
         // Should not trigger if we haven't waited long enough since previous harvest
         if (block.timestamp - params.lastReport < minReportDelay) return false;
 
@@ -1344,9 +1316,13 @@ contract AHv2Farmer is BaseStrategy {
         uint256 profit = 0;
         if (total > params.totalDebt) profit = total - params.totalDebt; // We've earned a profit!
 
-        // Otherwise, only trigger if it "makes sense" economically (gas cost
-        // is <N% of value moved)
+        // Otherwise, only trigger if it "makes sense" economically
         uint256 credit = vault.creditAvailable();
+        if (credit + want.balanceOf(address(this)) > borrowLimit) {
+            if (credit + want.balanceOf(address(this)) - borrowLimit > minWant) {
+                return true; 
+            }
+        }
         return (profitFactor * _callCost < credit + profit);
     }
 }

@@ -560,7 +560,7 @@ contract('Alpha homora test', function (accounts) {
     // should be able to estiamte totalAsset changes
     it('Should estimate totalAssets', async () => {
         const sid = await snapshotChain();
-        const amount = '100000'
+        const amount = '10000'
         await setBalance('usdc', usdcAdaptor.address, amount);
         await usdcAdaptor.strategyHarvest(0, 0, 0, {from: governance});
         const position = await primaryStrategy.activePosition();
