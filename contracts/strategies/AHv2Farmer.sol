@@ -42,6 +42,10 @@ interface IUniPool {
     function totalSupply() external view returns (uint256);
 }
 
+interface IHomoraOracle {
+    function getETHPx(address token) external view returns (uint);
+}
+
 // HomoraBank interface
 interface IHomora {
     function execute(
@@ -142,6 +146,8 @@ contract AHv2Farmer is BaseStrategy {
     uint256 immutable decimals;
     address public constant wavax =
         address(0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7);
+    IHomoraOracle public constant homoraOralce = 
+        IHomoraOracle(0xa6BAE2f3EE27271B55779BC6071FA101431Dc8Da);
     // Full repay
     uint256 constant REPAY = type(uint256).max;
 
@@ -173,9 +179,7 @@ contract AHv2Farmer is BaseStrategy {
 
     // Min amount of tokens to open/adjust positions or sell
     uint256 public minWant;
-    uint256 public constant minAVAXToSell = 0;
-    // comment out if uniSwap spell is used
-    uint256 public constant minYieldTokenToSell = 0;
+	uint256 public ammThreshold = 100;
 
     // Limits the size of a position based on how much is available to borrow
     uint256 public borrowLimit;
@@ -216,6 +220,7 @@ contract AHv2Farmer is BaseStrategy {
     event LogNewIlthresholdSet(uint256 ilThreshold);
     event LogNewMinWantSet(uint256 minWawnt);
     event LogNewBorrowLimit(uint256 newLimit);
+    event LogNewAmmThreshold(uint256 newThreshold);
 
     struct PositionData {
         uint256[] wantClose; // AVAX value of position when closed [want => AVAX]
@@ -321,6 +326,15 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
+     * @notice set threshold for amm check
+     * @param _threshold new threshold
+     */
+    function setAmmThreshold(uint256 _threshold) external onlyOwner {
+		ammThreshold = _threshold;
+		emit LogNewAmmThreshold(_threshold);
+    }
+
+    /*
      * @notice set minimum want required to adjust position
      * @param _minWant minimum amount of want
      */
@@ -417,6 +431,7 @@ contract AHv2Farmer is BaseStrategy {
         bool _withdraw
     ) internal {
         // adjust by removing
+        require(_ammCheck(decimals, address(want)), '_adjustPosition: !ammCheck');
         if (_withdraw) {
             uint256[] memory minAmounts = new uint256[](2);
             // AHv2 std slippage = 100 BP
@@ -454,6 +469,7 @@ contract AHv2Farmer is BaseStrategy {
      * @param amount amount of want to provide to prosition
      */
     function _openPosition(uint256 _amount) internal {
+        require(_ammCheck(decimals, address(want)), '_openPosition: !ammCheck');
         (uint256[] memory amounts, ) = _calcSingleSidedLiq(_amount, false);
         Amounts memory amt = _formatOpen(amounts, true);
         uint256 positionId = IHomora(homoraBank).execute(
@@ -521,16 +537,11 @@ contract AHv2Farmer is BaseStrategy {
     /*
      * @notice Manually wind down an AHv2 position
      * @param _positionId ID of position to close
-     * @param _check amount used to check AMM
-     * @param _minAmount min amount to expect back from AMM (AVAX)
      */
     function forceClose(
-        uint256 _positionId,
-        uint256 _check,
-        uint256 _minAmount
+        uint256 _positionId
     ) external onlyAuthorized {
-        uint256[] memory amounts = _uniPrice(_check, address(want));
-        require(amounts[1] >= _minAmount, "forceClose: !_minAmount");
+        require(_ammCheck(decimals, address(want)), 'forceClose: !ammCheck');
         _closePosition(_positionId, true);
     }
 
@@ -540,6 +551,7 @@ contract AHv2Farmer is BaseStrategy {
      * @param _force Force close position, set minAmount to 0/0
      */
     function _closePosition(uint256 _positionId, bool _force) internal {
+        require(_ammCheck(decimals, address(want)), '_closePosition: !ammCheck');
         // active position data
         PositionData storage pd = positions[_positionId];
         uint256 collateral = pd.collateral;
@@ -578,25 +590,14 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
-     * @notice Manually sell AVAX
-     * @param _minAmount min amount to recieve from the AMM
-     */
-    function sellAVAX(uint256 _minAmount) external onlyAuthorized {
-        _ammCheck(1E18, _minAmount, wavax);
-        _sellAVAX(false);
-    }
-
-    /*
      * @notice sell the contracts AVAX for want if there enough to justify the sell
      * @param _useMinThreshold Use min threshold when selling, or sell everything
      */
-    function _sellAVAX(bool _useMinThreshold) internal {
+    function _sellAVAX() internal {
         uint256 balance = address(this).balance;
 
         // check if we have enough AVAX to sell
         if (balance == 0) {
-            return;
-        } else if (_useMinThreshold && (balance < minAVAXToSell)) {
             return;
         }
 
@@ -612,26 +613,13 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
-     * @notice Manually sell yield tokens
-     * @param _minAmount min amount to recieve from the AMM
-     */
-    function sellYieldToken(uint256 _minAmount) external onlyAuthorized {
-        _ammCheck(1E18, _minAmount, yieldToken);
-        _sellYieldToken(false);
-    }
-
-    /*
      * @notice sell the contracts yield tokens for want if there enough to justify the sell - can remove this method if uni swap spell
      * @param _useMinThreshold Use min threshold when selling, or sell everything
      */
-    function _sellYieldToken(bool _useMinThreshold) internal {
+    function _sellYieldToken() internal {
+        //require(_ammCheck(18, yieldToken), 'sellYieldToken: !ammCheck');
         uint256 balance = IERC20(yieldToken).balanceOf(address(this));
-        if (balance == 0) {
-            return;
-        } else if (_useMinThreshold && (balance < minYieldTokenToSell)) {
-            return;
-        }
-
+        if (balance == 0) return;
         uint256[] memory amounts = uniSwapRouter.swapExactTokensForTokens(
             balance,
             0,
@@ -664,13 +652,6 @@ contract AHv2Farmer is BaseStrategy {
                 amt.aBorrow = _amounts[1];
             }
         }
-        // apply 100 BP slippage
-        // NOTE: Temp fix to handle adjust position without borrow
-        //      - As these transactions are run behind a private node or flashbot, it shouldnt
-        //      impact anything to set minaAmount to 0
-        // amt.aMin = 0;
-        // amt.bMin = 0;
-        // amt.bMin = amounts[1] * (PERCENTAGE_DECIMAL_FACTOR - 100) / PERCENTAGE_DECIMAL_FACTOR;
     }
 
     /*
@@ -868,8 +849,8 @@ contract AHv2Farmer is BaseStrategy {
         uint256 balance;
         // only try to realize profits if there is no active position
         if (_positionId == 0) {
-            _sellYieldToken(true);
-            _sellAVAX(true);
+            _sellYieldToken();
+            _sellAVAX();
             balance = want.balanceOf(address(this));
             _debtPayment = Math.min(balance, _debtOutstanding);
 
@@ -1003,6 +984,7 @@ contract AHv2Farmer is BaseStrategy {
         override
         returns (uint256, uint256)
     {
+        require(_ammCheck(decimals, address(want)), '_liquidatePosition: !ammCheck');
         uint256 _amountFreed = 0;
         uint256 _loss = 0;
         // want in contract + want value of position based of AVAX value of position (total - borrowed)
@@ -1027,9 +1009,9 @@ contract AHv2Farmer is BaseStrategy {
         if (assets < _amountNeeded) {
             if (activePosition != 0) {
                 _closePosition(_positionId, false);
+				_sellYieldToken();
+				_sellAVAX();
             }
-            _sellYieldToken(false);
-            _sellAVAX(false);
             _amountFreed = Math.min(
                 _amountNeeded,
                 want.balanceOf(address(this))
@@ -1172,31 +1154,23 @@ contract AHv2Farmer is BaseStrategy {
      */
     function _prepareMigration(address _newStrategy) internal override {
         require(activePosition == 0, "prepareMigration: active position");
-        _sellAVAX(false);
-        _sellYieldToken(false);
-    }
-
-    /*
-     * @notice Check that an external minAmount is achived when interacting with the AMM
-     * @param amount amount to swap
-     * @param _minAmount expected minAmount to get out from swap
-     */
-    function ammCheck(uint256 _amount, uint256 _minAmount)
-        external
-        view
-        override
-        returns (bool)
-    {
-        _ammCheck(_amount, _minAmount, address(want));
     }
 
     function _ammCheck(
-        uint256 _amount,
-        uint256 _minAmount,
+        uint256 _decimals,
         address _start
     ) internal view returns (bool) {
-        uint256[] memory amounts = _uniPrice(_amount, _start);
-        return (amounts[1] >= _minAmount);
+        uint256 ethPx = IHomoraOracle(homoraOralce).getETHPx(_start);
+        address[] memory path = new address[](2);
+        path[0] = _start;
+        path[1] = wavax;
+        uint256[] memory amounts = uniSwapRouter.getAmountsOut(
+            10 ** _decimals,
+            path
+        );
+        uint256 diff = (ethPx * 10**(_decimals + 4) / 2 ** 112) / amounts[1];
+        diff = (diff > PERCENTAGE_DECIMAL_FACTOR) ? diff - PERCENTAGE_DECIMAL_FACTOR : PERCENTAGE_DECIMAL_FACTOR - diff;
+        if (diff < ammThreshold) return true; 
     }
 
     /**

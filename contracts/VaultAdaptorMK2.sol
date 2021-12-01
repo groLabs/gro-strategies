@@ -27,11 +27,6 @@ interface IStrategy {
     function harvestTrigger(uint256 callCost) external view returns (bool);
 
     function harvest() external;
-
-    function ammCheck(uint256 _check, uint256 _minAmount)
-        external
-        view
-        returns (bool);
 }
 
 /// @notice VaultAdapterMk2 - Gro protocol stand alone vault for strategy testing
@@ -291,26 +286,14 @@ contract VaultAdaptorMK2 is
 
     /// @notice Harvest underlying strategy
     /// @param _index Index of strategy
-    /// @param _check Amount to check against AMM if applicable
-    /// @param _minAmount minAmount to expect to get out of AMM
     /// @dev Any Gains/Losses incurred by harvesting a streategy is accounted for in the vault adapter
     ///     and reported back to the Controller, which in turn updates current system total assets.
-    ///     AMM checks are used as external verifications to avoid sandwich attacks when interacting with
-    ///     with strategies (priceing and swapping).
     function strategyHarvest(
-        uint256 _index,
-        uint256 _check,
-        uint256 _minAmount
+        uint256 _index
     ) external nonReentrant onlyWhitelist {
         require(_index < strategyLength(), "invalid index");
         IStrategy _strategy = IStrategy(withdrawalQueue[_index]);
         uint256 beforeAssets = _totalAssets();
-        if (_check > 0) {
-            require(
-                _strategy.ammCheck(_check, _minAmount),
-                "strategyHarvest: !ammCheck"
-            );
-        }
         _strategy.harvest();
         uint256 afterAssets = _totalAssets();
         bool loss;

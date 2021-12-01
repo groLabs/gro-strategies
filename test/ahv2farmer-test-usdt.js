@@ -145,6 +145,7 @@ contract('Alpha homora test', function (accounts) {
     await usdtAdaptor.setUserAllowance(investor2, allowance, {from: bouncer});
 
     await primaryStrategy.setBorrowLimit(borrowLimit, {from: governance});
+    await primaryStrategy.setAmmThreshold(2000, {from: governance});
 
     for (let i = 0; i < 10; i++) {
       await network.provider.send("evm_mine");
@@ -165,7 +166,7 @@ contract('Alpha homora test', function (accounts) {
     it('Should be possible to open up a position in AHv2', async () => {
         // We dont have a position
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
         // We do have a position
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
         const position = await primaryStrategy.activePosition();
@@ -186,7 +187,7 @@ contract('Alpha homora test', function (accounts) {
         // add 3M to usdtAdaptor
         await setBalance('usdt', usdtAdaptor.address, deposit);
         // open a new position
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
 
         // the estimated assets should be ~ 2M but the position size <= 1M
@@ -196,7 +197,7 @@ contract('Alpha homora test', function (accounts) {
 
     // Check that we can add assets to a position
     it('Should be possible to add to a position', async () => {
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
@@ -204,7 +205,7 @@ contract('Alpha homora test', function (accounts) {
         // add 1 M usdt to adaper
         await setBalance('usdt', usdtAdaptor.address, '10000');
         // run harvest
-        await expect(usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})).to.eventually.be.fulfilled;
+        await expect(usdtAdaptor.strategyHarvest(0, {from: governance})).to.eventually.be.fulfilled;
         // we should have the same position
         return expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
     })
@@ -218,7 +219,7 @@ contract('Alpha homora test', function (accounts) {
         await setBalance('usdt', primaryStrategy.address, amount);
         await setBalance('usdt', investor1, amount);
         await usdtAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
     })
 
     it('Should be possible to force close a position', async () => {
@@ -230,7 +231,7 @@ contract('Alpha homora test', function (accounts) {
         assert.isAbove(Number(alphaData['collateralSize']), 0);
 
         // force close the position
-        await primaryStrategy.forceClose(position, 0, 0, {from: governance});
+        await primaryStrategy.forceClose(position, {from: governance});
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
         // position should have no debt or collateral
@@ -257,7 +258,7 @@ contract('Alpha homora test', function (accounts) {
             if (change == true) break;
         }
         // run harvest
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
         // active position should == 0
         expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
@@ -279,7 +280,7 @@ contract('Alpha homora test', function (accounts) {
         const amount = '10000';
         await setBalance('usdt', investor1, amount);
         await usdtAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
     })
 
 
@@ -291,7 +292,7 @@ contract('Alpha homora test', function (accounts) {
         // add assets to usdtAdaptor
         await setBalance('usdt', usdtAdaptor.address, '10000');
         // adjust the position, should take on more debt as the collateral ratio is fine
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
 
         const alphaDataAdd = await homoraBank.methods.getPositionInfo(position).call()
@@ -310,7 +311,7 @@ contract('Alpha homora test', function (accounts) {
         // add 1M to usdtAdaptor
         await setBalance('usdt', usdtAdaptor.address, '100000');
         // adjust the position, should take on more debt as the collateral ratio is fine
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
 
         // the estimated assets should be > 1M (1M + 10k) but the position size <= 1M
@@ -332,7 +333,7 @@ contract('Alpha homora test', function (accounts) {
 
         await setBalance('usdt', usdtAdaptor.address, '10000');
         // add to position
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
 
         const alphaDataAdd = await homoraBank.methods.getPositionInfo(position).call()
@@ -363,7 +364,7 @@ contract('Alpha homora test', function (accounts) {
 
         await setBalance('usdt', usdtAdaptor.address, '10000');
         // try adding to position
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
 
         const alphaDataAdd = await homoraBank.methods.getPositionInfo(position).call()
@@ -505,7 +506,7 @@ contract('Alpha homora test', function (accounts) {
     it('Should correctly estimated sushi assets', async () => {
         const sid = await snapshotChain();
         await setBalance('usdt', usdtAdaptor.address, '100000');
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance});
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
         const position = await primaryStrategy.activePosition();
         await masterChef.methods.updatePool(poolID).send({from: governance});
         const initSushi =  await primaryStrategy.pendingYieldToken(position);
@@ -520,7 +521,7 @@ contract('Alpha homora test', function (accounts) {
     it('Should correctly sell of eth and sushi', async () => {
         const sid = await snapshotChain();
         await setBalance('usdt', usdtAdaptor.address, '10000');
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance});
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
@@ -540,7 +541,7 @@ contract('Alpha homora test', function (accounts) {
             change = await primaryStrategy.volatilityCheck();
             if (change == true) break;
         }
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance});
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
         // revert the swap
         const userWant = await usdt.balanceOf(investor1);
         await swap(userWant, [tokens.usdt.address, tokens.avax.address])
@@ -562,7 +563,7 @@ contract('Alpha homora test', function (accounts) {
         const sid = await snapshotChain();
         const amount = '10000'
         await setBalance('usdt', usdtAdaptor.address, amount);
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance});
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
         const position = await primaryStrategy.activePosition();
         const initAssets = await primaryStrategy.estimatedTotalAssets();
         const reserves = await usdt.balanceOf(primaryStrategy.address);
@@ -593,11 +594,11 @@ contract('Alpha homora test', function (accounts) {
         await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(toBN(0));
         await setBalance('usdt', investor1, '10000');
         await usdtAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance});
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
         const expected = await primaryStrategy.expectedReturn();
         const alphaData = await homoraBank.methods.getPositionInfo(initPosition).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(initPosition).call()
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance});
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
         // Expect position expected return to be 0
         await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.eq(toBN(0));
         const stratData = await usdtAdaptor.strategies(primaryStrategy.address);
@@ -636,8 +637,8 @@ contract('Alpha homora test', function (accounts) {
         const expectedPreHarvest = await primaryStrategy.expectedReturn();
         // harvest gains
         const pricePerShare = await usdtVault.getPricePerShare();
-        await primaryStrategy.forceClose(position, 0, 0, {from: governance})
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance});
+        await primaryStrategy.forceClose(position, {from: governance})
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
         await expect(usdtVault.getPricePerShare()).to.eventually.be.a.bignumber.gt(pricePerShare);
         const alphaDataFin = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtFin = await homoraBank.methods.getPositionDebts(position).call()
@@ -687,11 +688,12 @@ contract('Alpha homora test', function (accounts) {
         await usdtAdaptor.deposit(amount_norm_usdt, {from: investor1})
         await expect(usdtAdaptor.strategyHarvest(0, amount_norm_usdt, amount_norm_weth, {from: governance})).to.eventually.be.rejected;
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.eq(toBN(0));
-        await usdtAdaptor.strategyHarvest(0, 0, 0, {from: governance});
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
         const position = primaryStrategy.activePosition()
         // force close the position
-        return expect(primaryStrategy.forceClose(position, amount_norm_usdt, amount_norm_weth, {from: governance})).to.eventually.be.rejected;
+        await primaryStrategy.setAmmThreshold(0, {from: governance});
+        return expect(primaryStrategy.forceClose(position, {from: governance})).to.eventually.be.rejected;
     })
   })
 })

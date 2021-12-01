@@ -647,13 +647,4 @@ abstract contract BaseStrategy {
             IERC20(_token).balanceOf(address(this))
         );
     }
-
-    function ammCheck(uint256 _amount, uint256 _minAmount)
-        external
-        view
-        virtual
-        returns (bool)
-    {
-        return true;
-    }
 }
