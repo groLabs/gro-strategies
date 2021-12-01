@@ -582,7 +582,7 @@ contract AHv2Farmer is BaseStrategy {
      * @param _minAmount min amount to recieve from the AMM
      */
     function sellAVAX(uint256 _minAmount) external onlyAuthorized {
-        _ammCheck(1E18, _minAmount, wavax);
+        _ammCheck(_minAmount, wavax);
         _sellAVAX(false);
     }
 
@@ -616,7 +616,7 @@ contract AHv2Farmer is BaseStrategy {
      * @param _minAmount min amount to recieve from the AMM
      */
     function sellYieldToken(uint256 _minAmount) external onlyAuthorized {
-        _ammCheck(1E18, _minAmount, yieldToken);
+        _ammCheck(_minAmount, yieldToken);
         _sellYieldToken(false);
     }
 
@@ -1181,21 +1181,21 @@ contract AHv2Farmer is BaseStrategy {
      * @param amount amount to swap
      * @param _minAmount expected minAmount to get out from swap
      */
-    function ammCheck(uint256 _amount, uint256 _minAmount)
+    function ammCheck(address _start, uint256 _minAmount)
         external
         view
         override
         returns (bool)
     {
-        _ammCheck(_amount, _minAmount, address(want));
+        _ammCheck(_minAmount, _start);
     }
 
     function _ammCheck(
-        uint256 _amount,
         uint256 _minAmount,
         address _start
     ) internal view returns (bool) {
-        uint256[] memory amounts = _uniPrice(_amount, _start);
+        uint256 _decimals = (_start == address(want)) ? decimals : 18;
+        uint256[] memory amounts = _uniPrice(10**_decimals, _start);
         return (amounts[1] >= _minAmount);
     }
 

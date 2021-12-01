@@ -147,7 +147,7 @@ contract TestStrategy is BaseStrategy {
         ammStatus = status;
     }
 
-    function ammCheck(uint256 _check, uint256 _minAmount) external view override returns (bool) {
+    function ammCheck(address _start, uint256 _minAmount) external view override returns (bool) {
         return ammStatus;
     }
 }

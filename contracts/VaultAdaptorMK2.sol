@@ -28,7 +28,7 @@ interface IStrategy {
 
     function harvest() external;
 
-    function ammCheck(uint256 _check, uint256 _minAmount)
+    function ammCheck(address _start, uint256 _minAmount)
         external
         view
         returns (bool);
@@ -291,23 +291,23 @@ contract VaultAdaptorMK2 is
 
     /// @notice Harvest underlying strategy
     /// @param _index Index of strategy
-    /// @param _check Amount to check against AMM if applicable
-    /// @param _minAmount minAmount to expect to get out of AMM
+    /// @param _tokens tokens to check
+    /// @param _minAmounts minAmount to expect to get out of AMM
     /// @dev Any Gains/Losses incurred by harvesting a streategy is accounted for in the vault adapter
     ///     and reported back to the Controller, which in turn updates current system total assets.
     ///     AMM checks are used as external verifications to avoid sandwich attacks when interacting with
     ///     with strategies (priceing and swapping).
     function strategyHarvest(
         uint256 _index,
-        uint256 _check,
-        uint256 _minAmount
+        address[] memory _tokens,
+        uint256[] memory _minAmounts
     ) external nonReentrant onlyWhitelist {
         require(_index < strategyLength(), "invalid index");
         IStrategy _strategy = IStrategy(withdrawalQueue[_index]);
         uint256 beforeAssets = _totalAssets();
-        if (_check > 0) {
+        for(uint256 i; i < _tokens.length; i++) {
             require(
-                _strategy.ammCheck(_check, _minAmount),
+                _strategy.ammCheck(_tokens[i], _minAmounts[i]),
                 "strategyHarvest: !ammCheck"
             );
         }
