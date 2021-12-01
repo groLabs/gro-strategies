@@ -23,7 +23,7 @@ contract Bouncer is Ownable {
     bytes32 public root;
     mapping(address => bool) public vaults;
     mapping(uint256 => address) public testVaults;
-    mapping(address => mapping(address => bool)) public claimed;
+    mapping(address => mapping(address => uint128)) public claimed;
 
     uint256 public numberOfVaults;
 
@@ -45,7 +45,7 @@ contract Bouncer is Ownable {
         emit LogNewDrop(merkleRoot);
     }
 
-    function isClaimed(address vault, address account) public view returns (bool) {
+    function getClaimed(address vault, address account) public view returns (uint128) {
         return claimed[vault][account];
     }
 
@@ -54,16 +54,18 @@ contract Bouncer is Ownable {
         address _vault,
         bytes32[] calldata merkleProof
     ) external {
-        require(!isClaimed(_vault, msg.sender), "claim: Drop already claimed");
         // Verify the merkle proof.
         bytes32 node = keccak256(abi.encodePacked(msg.sender, amount));
         require(MerkleProof.verify(merkleProof, root, node), "claim: Invalid proof");
+        uint128 _claimed = getClaimed(_vault, msg.sender);
+        require( _claimed < amount , "claim: full allowance already claimed");
+        uint128 _amount = amount - _claimed;
 
         // Mark it claimed and send the token.
-        IVault(_vault).setUserAllowance(msg.sender, amount);
-        claimed[_vault][msg.sender] = true;
+        IVault(_vault).setUserAllowance(msg.sender, _amount);
+        claimed[_vault][msg.sender] = amount;
 
-        emit LogClaim(msg.sender, _vault, amount);
+        emit LogClaim(msg.sender, _vault, _amount);
     }
 
     function verifyDrop(
