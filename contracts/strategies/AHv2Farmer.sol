@@ -521,16 +521,20 @@ contract AHv2Farmer is BaseStrategy {
     /*
      * @notice Manually wind down an AHv2 position
      * @param _positionId ID of position to close
-     * @param _check amount used to check AMM
      * @param _minAmount min amount to expect back from AMM (AVAX)
      */
     function forceClose(
         uint256 _positionId,
-        uint256 _check,
-        uint256 _minAmount
+        address[] memory _tokens,
+        uint256[] memory _minAmounts
     ) external onlyAuthorized {
-        uint256[] memory amounts = _uniPrice(_check, address(want));
-        require(amounts[1] >= _minAmount, "forceClose: !_minAmount");
+        for(uint256 i; i < _tokens.length; i++) {
+            uint256 _decimals = (_tokens[i] == address(want)) ? decimals : 18;
+            require(
+                _ammCheck(_tokens[i], _minAmounts[i]),
+                "forceClose: !ammCheck"
+            );
+        }
         _closePosition(_positionId, true);
     }
 
@@ -578,15 +582,6 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
-     * @notice Manually sell AVAX
-     * @param _minAmount min amount to recieve from the AMM
-     */
-    function sellAVAX(uint256 _minAmount) external onlyAuthorized {
-        _ammCheck(_minAmount, wavax);
-        _sellAVAX(false);
-    }
-
-    /*
      * @notice sell the contracts AVAX for want if there enough to justify the sell
      * @param _useMinThreshold Use min threshold when selling, or sell everything
      */
@@ -609,15 +604,6 @@ contract AHv2Farmer is BaseStrategy {
             value: balance
         }(0, _getPath(wavax), address(this), block.timestamp);
         emit LogAVAXSold(amounts);
-    }
-
-    /*
-     * @notice Manually sell yield tokens
-     * @param _minAmount min amount to recieve from the AMM
-     */
-    function sellYieldToken(uint256 _minAmount) external onlyAuthorized {
-        _ammCheck(_minAmount, yieldToken);
-        _sellYieldToken(false);
     }
 
     /*
@@ -1104,9 +1090,9 @@ contract AHv2Farmer is BaseStrategy {
 
         // check if the current want amount is large enough to justify opening/adding
         // to an existing position, else do nothing
+        if (_wantBal > borrowLimit) _wantBal = borrowLimit;
         if (_wantBal > minWant) {
             if (_positionId == 0) {
-                _wantBal = _wantBal > borrowLimit ? borrowLimit : _wantBal;
                 _openPosition(_wantBal);
             } else {
                 // TODO logic to lower the colateral ratio
@@ -1124,6 +1110,7 @@ contract AHv2Farmer is BaseStrategy {
                 uint256 posWant = positions[_positionId].wantOpen[0];
                 if (posWant > borrowLimit) {
                     _closePosition(_positionId, false);
+                    return;
                 }
                 _wantBal = _wantBal + posWant > borrowLimit
                     ? borrowLimit - posWant
@@ -1187,12 +1174,12 @@ contract AHv2Farmer is BaseStrategy {
         override
         returns (bool)
     {
-        _ammCheck(_minAmount, _start);
+        return _ammCheck(_start, _minAmount);
     }
 
     function _ammCheck(
-        uint256 _minAmount,
-        address _start
+        address _start,
+        uint256 _minAmount
     ) internal view returns (bool) {
         uint256 _decimals = (_start == address(want)) ? decimals : 18;
         uint256[] memory amounts = _uniPrice(10**_decimals, _start);
@@ -1266,7 +1253,7 @@ contract AHv2Farmer is BaseStrategy {
     {
         if (_positionId > 0) {
             uint256 posWant = positions[_positionId].wantOpen[0];
-            if (posWant >= borrowLimit || volatilityCheck()) {
+            if (posWant > borrowLimit || volatilityCheck()) {
                 return true;
             }
         }
@@ -1307,9 +1294,6 @@ contract AHv2Farmer is BaseStrategy {
         // Should not trigger if we haven't waited long enough since previous harvest
         if (block.timestamp - params.lastReport < minReportDelay) return false;
 
-        // Should trigger if hasn't been called in a while
-        if (block.timestamp - params.lastReport >= maxReportDelay) return true;
-
         // If some amount is owed, pay it back
         // NOTE: Since debt is based on deposits, it makes sense to guard against large
         //       changes to the value from triggering a harvest directly through user
@@ -1322,7 +1306,11 @@ contract AHv2Farmer is BaseStrategy {
         uint256 credit = vault.creditAvailable();
         // give borrowLimit if no position is open, if posWant > borrowLimit this
         //  function would already have returned true
-        uint256 remainingLimit = borrowLimit - positions[activePosition].wantOpen[0];
+        uint256 posWant;
+        if (activePosition > 0) {
+            posWant = positions[activePosition].wantOpen[0];
+        } 
+        uint256 remainingLimit = borrowLimit - posWant;
         // Check if we theres enough assets to add to/open a new position
         if (remainingLimit >= minWant) {
             if (

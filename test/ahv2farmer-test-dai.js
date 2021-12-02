@@ -230,7 +230,7 @@ contract('Alpha homora test', function (accounts) {
         assert.isAbove(Number(alphaData['collateralSize']), 0);
 
         // force close the position
-        await primaryStrategy.forceClose(position, 0, 0, {from: governance});
+        await primaryStrategy.forceClose(position, [], [], {from: governance});
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
         // position should have no debt or collateral
@@ -638,7 +638,7 @@ contract('Alpha homora test', function (accounts) {
         const expectedPreHarvest = await primaryStrategy.expectedReturn();
         // harvest gains
         const pricePerShare = await daiVault.getPricePerShare();
-        await primaryStrategy.forceClose(position, 0, 0, {from: governance})
+        await primaryStrategy.forceClose(position, [], [], {from: governance})
         await daiAdaptor.strategyHarvest(0, [], [], {from: governance});
         await expect(daiVault.getPricePerShare()).to.eventually.be.a.bignumber.gt(pricePerShare);
         const alphaDataFin = await homoraBank.methods.getPositionInfo(position).call()
@@ -694,6 +694,59 @@ contract('Alpha homora test', function (accounts) {
         const position = primaryStrategy.activePosition()
         // force close the position
         return expect(primaryStrategy.forceClose(position, amount_norm_dai, amount_norm_weth, {from: governance})).to.eventually.be.rejected;
+    })
+
+    it('Should be possible for the amm check to use multiple tokens', async () => {
+        const amount = '10000';
+        const amount_norm_dai = toBN(amount).mul(toBN(1E18));
+        await setBalance('dai', investor1, amount);
+        // get spotPrice
+        const change_want = await sushiSwapRouter.methods.getAmountsOut(toBN(1E18), [dai.address, avax.address]).call();
+        const change_joe = await sushiSwapRouter.methods.getAmountsOut(toBN(1E18), [sushi.address, avax.address]).call();
+        const minWantAvax = toBN(change_want[1]).mul(toBN(9900)).div(toBN(10000))
+        const minWantJoe = toBN(change_joe[1]).mul(toBN(9900)).div(toBN(10000))
+
+        await daiAdaptor.deposit(amount_norm_dai, {from: investor1})
+        await daiAdaptor.strategyHarvest(0, [dai.address, sushi.address], [minWantAvax, minWantJoe], {from: governance})
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        // force close the position
+        const position = await primaryStrategy.activePosition();
+        await expect(primaryStrategy.forceClose(position, [dai.address], [toBN(1E18)], {from: governance})).to.eventually.be.rejected;
+        return expect(primaryStrategy.forceClose(position, [avax.address, sushi.address], [minWantAvax, minWantJoe], {from: governance})).to.eventually.be.fulfilled;
+    })
+
+    it('Harvest trigger', async () => {
+        // should return false if no assets
+        await expect(primaryStrategy.harvestTrigger('0')).to.eventually.be.equal(false);
+
+        // should return true when assets available
+        const amount = '10000';
+        const amount_norm = toBN(amount).mul(toBN(1E18));
+        await setBalance('dai', investor1, amount);
+        await daiAdaptor.deposit(amount_norm, {from: investor1})
+        await expect(primaryStrategy.harvestTrigger('0')).to.eventually.be.equal(true);
+        await daiAdaptor.strategyHarvest(0, [], [], {from: governance})
+        await expect(primaryStrategy.harvestTrigger('0')).to.eventually.be.equal(false);
+
+        const sec_amount = '9000';
+        const sec_amount_norm = toBN(sec_amount).mul(toBN(1E6));
+        await primaryStrategy.setMinWant(amount_norm, {from: governance});
+        await setBalance('dai', investor1, amount);
+        await daiAdaptor.deposit(sec_amount_norm, {from: investor1})
+        await expect(primaryStrategy.harvestTrigger('0')).to.eventually.be.equal(false);
+        await primaryStrategy.setMinWant(sec_amount_norm, {from: governance});
+        await primaryStrategy.setBorrowLimit(sec_amount_norm.add(amount_norm), {from: governance});
+        await expect(primaryStrategy.harvestTrigger('0')).to.eventually.be.equal(true);
+        await daiAdaptor.strategyHarvest(0, [], [], {from: governance})
+        await expect(primaryStrategy.harvestTrigger('0')).to.eventually.be.equal(false);
+        await primaryStrategy.setMinWant(1, {from: governance});
+        await expect(primaryStrategy.harvestTrigger('0')).to.eventually.be.equal(false);
+        await primaryStrategy.setBorrowLimit(sec_amount_norm, {from: governance});
+        await expect(primaryStrategy.harvestTrigger('0')).to.eventually.be.equal(true);
+        await daiAdaptor.strategyHarvest(0, [], [], {from: governance})
+        await expect(primaryStrategy.harvestTrigger('0')).to.eventually.be.equal(true);
+        await daiAdaptor.strategyHarvest(0, [], [], {from: governance})
+        await expect(primaryStrategy.harvestTrigger('0')).to.eventually.be.equal(false);
     })
   })
 })
