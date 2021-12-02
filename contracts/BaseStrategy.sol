@@ -648,7 +648,7 @@ abstract contract BaseStrategy {
         );
     }
 
-    function ammCheck(uint256 _amount, uint256 _minAmount)
+    function ammCheck(address _start, uint256 _minAmount)
         external
         view
         virtual

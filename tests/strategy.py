@@ -21,7 +21,7 @@ topLimit = 2 ** 256 - 1
 def setup_strategy(a, strat, adaptor):
     strat.setBorrowLimit(borrowLimit);
     adaptor.addStrategy(strat.address, 10000, botLimit, topLimit)
-    strat.setMinWant(adaptor.decimals());
+    strat.setMinWant(10**adaptor.decimals());
 
 @pytest.fixture(scope='function')
 def dai_strategy(a, dai_adaptor, avax, dai, AHv2Farmer):
