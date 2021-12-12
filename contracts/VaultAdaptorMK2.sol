@@ -83,6 +83,10 @@ contract VaultAdaptorMK2 is
 
     address[MAXIMUM_STRATEGIES] public withdrawalQueue;
 
+    // Slow release of profit
+    uint256 public lockedProfit;
+    uint256 public releaseFactor;
+
     uint256 public debtRatio;
     uint256 public totalDebt;
     uint256 public lastReport;
@@ -134,6 +138,7 @@ contract VaultAdaptorMK2 is
     event LogMigrate(address parent, address child, uint256 amount);
     event LogNewBouncer(address bouncer);
     event LogNewRewards(address rewards);
+    event LogNewReleaseFactor(uint256 factor);
     event LogNewVaultFee(uint256 vaultFee);
     event LogNewStrategyHarvest(bool loss, uint256 change);
     event LogNewAllowance(address user, uint256 amount);
@@ -163,6 +168,8 @@ contract VaultAdaptorMK2 is
         activation = block.timestamp;
         _decimals = IERC20Detailed(_token).decimals();
         bouncer = _bouncer;
+        // 6 hours release
+        releaseFactor = DEFAULT_DECIMALS_FACTOR * 46 / 10 ** 6;
     }
 
     /// @notice Vault share decimals
@@ -216,6 +223,14 @@ contract VaultAdaptorMK2 is
         );
         userAllowance[_user] += _amount * (10**_decimals);
         emit LogNewAllowance(_user, _amount);
+    }
+
+    /// @notice Set how quickly profits are released
+    /// @param _factor how quickly profits are released
+    function setProfitRelease(uint256 _factor) external onlyOwner {
+        uint256 _releaseFactor = DEFAULT_DECIMALS_FACTOR * _factor / 10 ** 6;
+        releaseFactor = _releaseFactor;
+        emit LogNewReleaseFactor(_releaseFactor);
     }
 
     /// @notice Calculate system total assets
@@ -273,10 +288,10 @@ contract VaultAdaptorMK2 is
         internal
         returns (uint256)
     {
-        uint256 shares = 0;
+        uint256 shares;
         uint256 _totalSupply = totalSupply();
         if (_totalSupply > 0) {
-            shares = (_amount * _totalSupply) / _totalAssets();
+            shares = (_amount * _totalSupply) / _freeFunds();
         } else {
             shares = _amount;
         }
@@ -322,6 +337,21 @@ contract VaultAdaptorMK2 is
             loss = false;
         }
         emit LogNewStrategyHarvest(loss, change);
+    }
+
+    /// @notice Calculate how much profit is currently locked
+    function _calculateLockedProfit() internal view returns (uint256) {
+        uint256 lockedFundsRatio = (block.timestamp - lastReport) * releaseFactor;
+        if (lockedFundsRatio < DEFAULT_DECIMALS_FACTOR) {
+            uint256 _lockedProfit = lockedProfit;
+            return _lockedProfit - (lockedFundsRatio * _lockedProfit / DEFAULT_DECIMALS_FACTOR);
+        } else {
+            return 0;
+        }
+    }
+
+    function _freeFunds() internal view returns(uint256) {
+        return _totalAssets() - _calculateLockedProfit();
     }
 
     /// @notice Calculate system total assets including estimated profits
@@ -820,17 +850,27 @@ contract VaultAdaptorMK2 is
     function _shareValue(uint256 _shares) internal view returns (uint256) {
         uint256 _totalSupply = totalSupply();
         if (_totalSupply == 0) return _shares;
-        return ((_shares * _totalAssets()) / _totalSupply);
+        return (_shares * _freeFunds() / _totalSupply);
     }
 
     /// @notice Value of tokens in shares
     /// @param _amount amount of tokens to convert to shares
     function _sharesForAmount(uint256 _amount) internal view returns (uint256) {
-        uint256 _assets = _totalAssets();
+        uint256 _assets = _freeFunds();
         if (_assets > 0) {
             return (_amount * totalSupply()) / _assets;
         }
         return 0;
+    }
+
+    function _calcFees(uint256 _gain) internal returns (uint256) {
+        uint256 fees = (_gain * vaultFee) / PERCENTAGE_DECIMAL_FACTOR;
+        if (fees > 0)
+            _issueSharesForAmount(
+                rewards,
+                fees
+            );
+        return _gain - fees;
     }
 
     /// @notice Report back any gains/losses from a (strategy) harvest, vault adapetr
@@ -855,11 +895,6 @@ contract VaultAdaptorMK2 is
         if (_loss > 0) {
             _reportLoss(msg.sender, _loss);
         }
-        if (vaultFee > 0 && _gain > 0)
-            _issueSharesForAmount(
-                rewards,
-                (_gain * vaultFee) / PERCENTAGE_DECIMAL_FACTOR
-            );
 
         _strategy.totalGain = _strategy.totalGain + _gain;
 
@@ -889,6 +924,15 @@ contract VaultAdaptorMK2 is
                 address(this),
                 totalAvailable - credit
             );
+        }
+
+        // Profit is locked and gradually released per block
+        // NOTE: compute current locked profit and replace with sum of current and new
+        uint256 lockedProfitBeforeLoss = _calculateLockedProfit() + _calcFees(_gain);
+        if (lockedProfitBeforeLoss > _loss) {
+            lockedProfit = lockedProfitBeforeLoss - _loss;
+        } else {
+            lockedProfit = 0;
         }
 
         lastReport = block.timestamp;
