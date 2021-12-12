@@ -1009,9 +1009,9 @@ contract AHv2Farmer is BaseStrategy {
         if (assets < _amountNeeded) {
             if (activePosition != 0) {
                 _closePosition(_positionId, false);
-                _sellAVAX(false);
+                _sellAVAX();
             }
-            _sellYieldToken(false);
+            _sellYieldToken();
             _amountFreed = Math.min(
                 _amountNeeded,
                 want.balanceOf(address(this))
@@ -1122,9 +1122,6 @@ contract AHv2Farmer is BaseStrategy {
         override
         returns (address[] memory)
     {
-        address[] memory protected = new address[](1);
-        protected[0] = yieldToken;
-        return protected;
     }
 
     /*

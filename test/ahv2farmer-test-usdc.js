@@ -26,6 +26,7 @@ const spellSushiABI = JSON.parse(fs.readFileSync("contracts/mocks/abi/sushiSpell
 const masterChefABI = JSON.parse(fs.readFileSync("contracts/mocks/abi/MasterChef.json"));
 const uniABI = JSON.parse(fs.readFileSync("contracts/mocks/abi/IUni.json"));
 const allowance = toBN(1E18)
+const baseAllowance = toBN(10).mul(toBN(1E6));
 
 let usdcAdaptor,
     usdc,
@@ -104,7 +105,7 @@ contract('Alpha homora test', function (accounts) {
     sushi = await MockERC20.at(sushiToken);
 
     // create the vault adapter
-    usdcAdaptor = await VaultAdaptor.new(tokens.usdc.address, bouncer, { from: governance });
+    usdcAdaptor = await VaultAdaptor.new(tokens.usdc.address, baseAllowance, bouncer, {from: governance})
     usdcVault = usdcAdaptor;
 
     // create and add the AHv2 strategy to the adapter
@@ -289,7 +290,7 @@ contract('Alpha homora test', function (accounts) {
         await network.provider.send("evm_mine");
         await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.equal(true);
         // run harvest
-        await usdcAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdcAdaptor.strategyHarvest(0, {from: governance})
         // active position should == 0
         expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
@@ -311,7 +312,7 @@ contract('Alpha homora test', function (accounts) {
         await primaryStrategy.setBorrowLimit(0, {from: governance});
         await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.equal(true);
         // run harvest
-        await usdcAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        await usdcAdaptor.strategyHarvest(0, {from: governance})
         // active position should == 0
         expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
@@ -690,6 +691,10 @@ contract('Alpha homora test', function (accounts) {
         const pricePerShare = await usdcVault.getPricePerShare();
         await primaryStrategy.forceClose(position, {from: governance})
         await usdcAdaptor.strategyHarvest(0, {from: governance});
+        await expect(usdcVault.getPricePerShare()).to.eventually.be.a.bignumber.equal(pricePerShare);
+        for (let i = 0; i < 100; i++) {
+          await network.provider.send("evm_mine");
+        }
         await expect(usdcVault.getPricePerShare()).to.eventually.be.a.bignumber.gt(pricePerShare);
         const alphaDataFin = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtFin = await homoraBank.methods.getPositionDebts(position).call()
