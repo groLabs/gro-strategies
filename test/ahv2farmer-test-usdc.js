@@ -136,7 +136,7 @@ contract('Alpha homora test', function (accounts) {
     await homoraBank.methods.setWhitelistUsers([primaryStrategy.address], [true]).send({from: AHGov})
     await homoraBank.methods.setCreditLimits([[primaryStrategy.address, avax.address, toBN(1E18).mul(toBN(1E18)).toString()]]).send({from: AHGov})
     await usdcAdaptor.addToWhitelist(governance, {from: governance});
-    await primaryStrategy.setMinWant(100, {from: governance});
+    await primaryStrategy.setMinWant(toBN(100).mul(toBN(1E6)), {from: governance});
 
     await usdcAdaptor.setDepositLimit(constants.MAX_UINT256, {from: governance});
     await usdc.approve(usdcAdaptor.address, allowance, {from: investor1});
@@ -216,7 +216,6 @@ contract('Alpha homora test', function (accounts) {
   describe('Closing position', function () {
     beforeEach(async function () {
         const amount = '100000';
-        await setBalance('usdc', primaryStrategy.address, amount);
         await setBalance('usdc', investor1, amount);
         await usdcAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
         await usdcAdaptor.strategyHarvest(0, {from: governance})
@@ -266,6 +265,58 @@ contract('Alpha homora test', function (accounts) {
         // revert the swap
         const userWant = await avax.balanceOf(investor1);
         await swap(userWant, [tokens.avax.address, tokens.usdc.address])
+        // the previous position should have no debt nor collateral
+        await expect(homoraBank.methods.getPositionDebts(position).call()).to.eventually.have.property("debts").that.eql([]);
+        await expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
+
+        return revertChain(sid);
+    })
+
+    it('Should be possible to close the position after a max amount of time', async () => {
+        const sid = await snapshotChain();
+        // simulate price movment by trading in the pool
+        const position = await primaryStrategy.activePosition();
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.equal(false);
+        const timestamp = (await web3.eth.getBlock('latest')).timestamp;
+        const newTimestamp = toBN(timestamp).add(toBN("21605"));
+        await network.provider.request(
+            {
+                method: "evm_setNextBlockTimestamp",
+                params: [newTimestamp.toNumber()]
+            }
+        );
+        await network.provider.send("evm_mine");
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.equal(true);
+        // run harvest
+        await usdcAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        // active position should == 0
+        expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
+        const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
+        const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
+        // revert the swap
+        // the previous position should have no debt nor collateral
+        await expect(homoraBank.methods.getPositionDebts(position).call()).to.eventually.have.property("debts").that.eql([]);
+        await expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
+
+        return revertChain(sid);
+    })
+
+    it('Should be possible to close the position if we have exceeded the borrow limit', async () => {
+        const sid = await snapshotChain();
+        // simulate price movment by trading in the pool
+        const position = await primaryStrategy.activePosition();
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.equal(false);
+        await primaryStrategy.setBorrowLimit(0, {from: governance});
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.equal(true);
+        // run harvest
+        await usdcAdaptor.strategyHarvest(0, 0, 0, {from: governance})
+        // active position should == 0
+        expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
+        const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
+        const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
+        // revert the swap
         // the previous position should have no debt nor collateral
         await expect(homoraBank.methods.getPositionDebts(position).call()).to.eventually.have.property("debts").that.eql([]);
         await expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
@@ -655,7 +706,7 @@ contract('Alpha homora test', function (accounts) {
 
     it('Should be possible to change the minWant', async () => {
         const originalWant = await primaryStrategy.minWant();
-        await expect(originalWant).to.be.a.bignumber.equal(toBN(100));
+        await expect(originalWant).to.be.a.bignumber.equal(toBN(100000000));
         await primaryStrategy.setMinWant(200, {from: governance});
         return expect(primaryStrategy.minWant()).to.eventually.be.a.bignumber.equal(toBN(200));
     })
