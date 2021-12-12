@@ -1009,9 +1009,9 @@ contract AHv2Farmer is BaseStrategy {
         if (assets < _amountNeeded) {
             if (activePosition != 0) {
                 _closePosition(_positionId, false);
-				_sellYieldToken();
-				_sellAVAX();
+                _sellAVAX(false);
             }
+            _sellYieldToken(false);
             _amountFreed = Math.min(
                 _amountNeeded,
                 want.balanceOf(address(this))
@@ -1024,8 +1024,8 @@ contract AHv2Farmer is BaseStrategy {
                 // because pulling out assets from AHv2 tends to give us less assets than
                 // we want specify, so lets see if we can pull out a bit in excess to be
                 // able to pay back the full amount
-                if (assets > _amountNeeded - _balance / 2) {
-                    remainder = _amountNeeded - _balance / 2;
+                if (assets > _amountNeeded - _balance + 100 ** decimals) {
+                    remainder = _amountNeeded - _balance + 100 ** decimals;
                 } else {
                     // but if not possible just pull the original amount
                     remainder = _amountNeeded - _balance;
