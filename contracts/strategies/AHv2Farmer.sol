@@ -224,7 +224,7 @@ contract AHv2Farmer is BaseStrategy {
         uint256 collId; // collateral ID
         uint256 collateral; // collateral amount
         uint256[] debt; // borrowed token amount
-        bool active; // is position active
+		uint256[] timestamps; // open/close position stamps
     }
 
     struct Amounts {
@@ -487,7 +487,7 @@ contract AHv2Farmer is BaseStrategy {
         PositionData storage pos = positions[_positionId];
         if (_newPosition) {
             activePosition = _positionId;
-            pos.active = true;
+            pos.timestamps.push(block.timestamp);
             pos.wantOpen = _amounts;
             pos.collId = collId;
             pos.collateral = collateralSize;
@@ -569,7 +569,7 @@ contract AHv2Farmer is BaseStrategy {
         // total amount of want retrieved from position
         wantBal = want.balanceOf(address(this)) - wantBal;
         PositionData storage pos = positions[_positionId];
-        pos.active = false;
+        pos.timestamps.push(block.timestamp);
         pos.totalClose = wantBal;
         uint256[] memory _wantClose = _uniPrice(pos.wantOpen[0], address(want));
         pos.wantClose = _wantClose;
@@ -1257,14 +1257,17 @@ contract AHv2Farmer is BaseStrategy {
         view
         returns (bool, uint256)
     {
+        uint256 posWant;
         if (_positionId > 0) {
-            uint256 posWant = positions[_positionId].wantOpen[0];
-            if (posWant >= borrowLimit || volatilityCheck()) {
+            posWant = positions[_positionId].wantOpen[0];
+            if (posWant >= borrowLimit 
+                || volatilityCheck() 
+                || block.timestamp - positions[_positionId].timestamps[0] >= maxReportDelay) 
+            {
                 return (true, 0);
             }
-			return (false, borrowLimit - posWant);
         }
-        return (false, borrowLimit);
+        return (false, borrowLimit - posWant);
     }
 
     /**
@@ -1299,9 +1302,6 @@ contract AHv2Farmer is BaseStrategy {
         // external view function, so we dont bother setting activePosition to a local variable
 		(bool check, uint256 remainingLimit) = _checkPositionHealth(activePosition);
         if (check) return true;
-
-        // Should trigger if hasn't been called in a while
-        if (block.timestamp - params.lastReport >= maxReportDelay) return true;
 
         // If some amount is owed, pay it back
         // NOTE: Since debt is based on deposits, it makes sense to guard against large
