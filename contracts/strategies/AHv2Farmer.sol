@@ -1080,13 +1080,14 @@ contract AHv2Farmer is BaseStrategy {
      *      this strategy should act conservative and atempt to repay any outstanding amount
      */
     function _adjustPosition(uint256 _debtOutstanding) internal override {
-        //emergency exit is dealt with in liquidatePosition
+		//emergency exit is dealt with in liquidatePosition
         if (emergencyExit) {
             return;
         }
 
         uint256 _positionId = activePosition;
-        if (_positionId > 0 && volatilityCheck()) {
+		(bool check, uint256 remainingLimit) = _checkPositionHealth(activePosition);
+        if (check) {
             _closePosition(_positionId, false);
             return;
         }
@@ -1104,9 +1105,9 @@ contract AHv2Farmer is BaseStrategy {
 
         // check if the current want amount is large enough to justify opening/adding
         // to an existing position, else do nothing
+        if (_wantBal > remainingLimit) _wantBal = remainingLimit;
         if (_wantBal > minWant) {
             if (_positionId == 0) {
-                _wantBal = _wantBal > borrowLimit ? borrowLimit : _wantBal;
                 _openPosition(_wantBal);
             } else {
                 // TODO logic to lower the colateral ratio
@@ -1121,13 +1122,6 @@ contract AHv2Farmer is BaseStrategy {
                 //     uint256[] memory oldPrice = positions[_positionId].openWant;
                 //     uint256 newPercentage = (newPosition[0] * PERCENTAGE_DECIMAL_FACTOR / oldPrice[0])
                 // }
-                uint256 posWant = positions[_positionId].wantOpen[0];
-                if (posWant > borrowLimit) {
-                    _closePosition(_positionId, false);
-                }
-                _wantBal = _wantBal + posWant > borrowLimit
-                    ? borrowLimit - posWant
-                    : _wantBal;
                 (uint256[] memory newPosition, ) = _calcSingleSidedLiq(
                     _wantBal,
                     false
@@ -1223,10 +1217,9 @@ contract AHv2Farmer is BaseStrategy {
         uint256 loss = 0;
         uint256 debtOutstanding = vault.debtOutstanding();
         uint256 debtPayment = 0;
-        bool adjustFirst;
 
         // Check if position needs to be closed before accounting
-        adjustFirst = _checkPositionHealth(activePosition);
+		(bool adjustFirst, ) = _checkPositionHealth(activePosition);
         if (emergencyExit) {
             // Free up as much capital as possible
             uint256 totalAssets = estimatedTotalAssets();
@@ -1262,15 +1255,16 @@ contract AHv2Farmer is BaseStrategy {
     function _checkPositionHealth(uint256 _positionId)
         internal
         view
-        returns (bool)
+        returns (bool, uint256)
     {
         if (_positionId > 0) {
             uint256 posWant = positions[_positionId].wantOpen[0];
             if (posWant >= borrowLimit || volatilityCheck()) {
-                return true;
+                return (true, 0);
             }
+			return (false, borrowLimit - posWant);
         }
-        return false;
+        return (false, borrowLimit);
     }
 
     /**
@@ -1303,9 +1297,8 @@ contract AHv2Farmer is BaseStrategy {
         if (params.activation == 0) return false;
 
         // external view function, so we dont bother setting activePosition to a local variable
-        if (_checkPositionHealth(activePosition)) return true;
-        // Should not trigger if we haven't waited long enough since previous harvest
-        if (block.timestamp - params.lastReport < minReportDelay) return false;
+		(bool check, uint256 remainingLimit) = _checkPositionHealth(activePosition);
+        if (check) return true;
 
         // Should trigger if hasn't been called in a while
         if (block.timestamp - params.lastReport >= maxReportDelay) return true;
@@ -1320,9 +1313,6 @@ contract AHv2Farmer is BaseStrategy {
 
         // Otherwise, only trigger if it "makes sense" economically
         uint256 credit = vault.creditAvailable();
-        // give borrowLimit if no position is open, if posWant > borrowLimit this
-        //  function would already have returned true
-        uint256 remainingLimit = borrowLimit - positions[activePosition].wantOpen[0];
         // Check if we theres enough assets to add to/open a new position
         if (remainingLimit >= minWant) {
             if (
