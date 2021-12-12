@@ -74,8 +74,12 @@ contract VaultAdaptorMK2 is
         uint256 totalLoss;
     }
 
+    // Allowance
+    bool public allowance = true; // turn allowance on/off
+    uint256 public immutable BASE_ALLOWANCE; // user BASE allowance
+    mapping(address => uint256) public userAllowance; // user additional allowance
+
     mapping(address => StrategyParams) public strategies;
-    mapping(address => uint256) public userAllowance;
 
     address[MAXIMUM_STRATEGIES] public withdrawalQueue;
 
@@ -133,6 +137,7 @@ contract VaultAdaptorMK2 is
     event LogNewVaultFee(uint256 vaultFee);
     event LogNewStrategyHarvest(bool loss, uint256 change);
     event LogNewAllowance(address user, uint256 amount);
+    event LogAllowanceStatus(bool status);
     event LogDeposit(
         address indexed from,
         uint256 _amount,
@@ -147,13 +152,14 @@ contract VaultAdaptorMK2 is
         uint256 allowance
     );
 
-    constructor(address _token, address _bouncer)
+    constructor(address _token, uint256 _baseAllowance, address _bouncer)
         ERC20(
             string(abi.encodePacked("Gro ", IERC20Detailed(_token).symbol(), " Lab")),
             string(abi.encodePacked("gro", IERC20Detailed(_token).symbol()))
         )
     {
         token = _token;
+        BASE_ALLOWANCE = _baseAllowance;
         activation = block.timestamp;
         _decimals = IERC20Detailed(_token).decimals();
         bouncer = _bouncer;
@@ -169,6 +175,13 @@ contract VaultAdaptorMK2 is
     function setBouncer(address _bouncer) external onlyOwner {
         bouncer = _bouncer;
         emit LogNewBouncer(_bouncer);
+    }
+
+    /// @notice Set Vault to use allowance
+    /// @param _status set allowance to on/off
+    function activateAllowance(bool _status) external onlyOwner {
+        allowance = _status;
+        emit LogAllowanceStatus(_status);
     }
 
     /// @notice Set contract that will recieve vault fees
@@ -234,18 +247,21 @@ contract VaultAdaptorMK2 is
             _totalAssets() + _amount <= depositLimit,
             "deposit: !depositLimit"
         );
-        require(
-            userAllowance[msg.sender] >= _amount,
-            "deposit: !userAllowance"
-        );
+        uint256 _allowance = 0;
+        if (allowance) {
+            require(
+                userAllowance[msg.sender] >= _amount,
+                "deposit: !userAllowance"
+            );
+            _allowance = userAllowance[msg.sender] - _amount;
+            userAllowance[msg.sender] = _allowance;
+        }
 
         uint256 shares = _issueSharesForAmount(msg.sender, _amount);
 
         IERC20 _token = IERC20(token);
         _token.safeTransferFrom(msg.sender, address(this), _amount);
 
-        uint256 _allowance = userAllowance[msg.sender] - _amount;
-        userAllowance[msg.sender] = _allowance;
         emit LogDeposit(msg.sender, _amount, shares, _allowance);
         return shares;
     }
@@ -789,8 +805,11 @@ contract VaultAdaptorMK2 is
         _burn(msg.sender, shares);
         _token.safeTransfer(msg.sender, value);
         // Hopefully get a bit more allowance - thx for participating!
-        uint256 _allowance = userAllowance[msg.sender] + (value + totalLoss);
-        userAllowance[msg.sender] = _allowance;
+        uint256 _allowance = 0;
+        if (allowance) {
+            _allowance = userAllowance[msg.sender] + (value + totalLoss);
+            userAllowance[msg.sender] = _allowance;
+        }
 
         emit LogWithdrawal(msg.sender, value, shares, totalLoss, _allowance);
         return value;
