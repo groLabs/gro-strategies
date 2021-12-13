@@ -385,7 +385,7 @@ contract AHv2Farmer is BaseStrategy {
                 estimatedYieldToken,
                 yieldToken
             );
-            return yieldTokenWantValue[1];
+            return yieldTokenWantValue[yieldTokenWantValue.length - 1];
         } else {
             return 0;
         }
