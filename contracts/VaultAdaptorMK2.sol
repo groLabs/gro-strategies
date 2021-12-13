@@ -164,9 +164,10 @@ contract VaultAdaptorMK2 is
         )
     {
         token = _token;
-        BASE_ALLOWANCE = _baseAllowance;
         activation = block.timestamp;
-        _decimals = IERC20Detailed(_token).decimals();
+        uint256 decimals = IERC20Detailed(_token).decimals();
+        _decimals = decimals;
+        BASE_ALLOWANCE = _baseAllowance * 10 ** decimals;
         bouncer = _bouncer;
         // 6 hours release
         releaseFactor = DEFAULT_DECIMALS_FACTOR * 46 / 10 ** 6;
@@ -221,7 +222,11 @@ contract VaultAdaptorMK2 is
             msg.sender == bouncer,
             "setUserAllowance: msg.sender != bouncer"
         );
-        userAllowance[_user] += _amount * (10**_decimals);
+        if (balanceOf(_user) == 0 && userAllowance[_user] == 0) {
+            userAllowance[_user] += _amount * (10**_decimals) + BASE_ALLOWANCE;
+        } else {
+            userAllowance[_user] += _amount * (10**_decimals);
+        }
         emit LogNewAllowance(_user, _amount);
     }
 
@@ -264,11 +269,17 @@ contract VaultAdaptorMK2 is
         );
         uint256 _allowance = 0;
         if (allowance) {
-            require(
-                userAllowance[msg.sender] >= _amount,
-                "deposit: !userAllowance"
-            );
-            _allowance = userAllowance[msg.sender] - _amount;
+            _allowance = userAllowance[msg.sender];
+            if (_allowance == 0 && balanceOf(msg.sender) == 0) {
+                require(_amount <= BASE_ALLOWANCE, "deposit: !userAllowance");
+                _allowance = BASE_ALLOWANCE - _amount;
+            } else {
+                require(
+                    userAllowance[msg.sender] >= _amount,
+                    "deposit: !userAllowance"
+                );
+                _allowance = userAllowance[msg.sender] - _amount;
+            }
             userAllowance[msg.sender] = _allowance;
         }
 
