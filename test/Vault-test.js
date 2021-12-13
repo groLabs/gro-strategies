@@ -14,6 +14,7 @@ const {
   toBytes32,
 } = require("./utils/common-utils");
 const allowance = toBN(1e18);
+const baseAllowance = toBN(10).mul(toBN(1E6));
 
 let usdcAdaptor,
   usdc,
@@ -54,7 +55,7 @@ contract("VaultAdapter test", function (accounts) {
     usdc = await MockERC20.at(tokens.usdc.address);
 
     // create the vault adapter
-    usdcAdaptor = await VaultAdaptor.new(tokens.usdc.address, bouncer, {
+    usdcAdaptor = await VaultAdaptor.new(tokens.usdc.address, baseAllowance, bouncer, {
       from: governance,
     });
 
@@ -1246,6 +1247,7 @@ contract("VaultAdapter test", function (accounts) {
       // strategy added has to be linked to the vault
       const usdcAdaptorNew = await VaultAdaptor.new(
         tokens.usdc.address,
+        baseAllowance,
         bouncer,
         { from: governance }
       );
