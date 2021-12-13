@@ -1009,8 +1009,8 @@ contract AHv2Farmer is BaseStrategy {
         if (assets < _amountNeeded) {
             if (activePosition != 0) {
                 _closePosition(_positionId, false);
-                _sellAVAX();
             }
+            _sellAVAX();
             _sellYieldToken();
             _amountFreed = Math.min(
                 _amountNeeded,

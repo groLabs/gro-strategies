@@ -76,6 +76,7 @@ contract VaultAdaptorMK2 is
 
     // Allowance
     bool public allowance = true; // turn allowance on/off
+    mapping(address => bool) public claimed;
     uint256 public immutable BASE_ALLOWANCE; // user BASE allowance
     mapping(address => uint256) public userAllowance; // user additional allowance
 
@@ -222,8 +223,9 @@ contract VaultAdaptorMK2 is
             msg.sender == bouncer,
             "setUserAllowance: msg.sender != bouncer"
         );
-        if (balanceOf(_user) == 0 && userAllowance[_user] == 0) {
+        if (!claimed[_user]) {
             userAllowance[_user] += _amount * (10**_decimals) + BASE_ALLOWANCE;
+            claimed[_user] = true;
         } else {
             userAllowance[_user] += _amount * (10**_decimals);
         }
@@ -270,9 +272,10 @@ contract VaultAdaptorMK2 is
         uint256 _allowance = 0;
         if (allowance) {
             _allowance = userAllowance[msg.sender];
-            if (_allowance == 0 && balanceOf(msg.sender) == 0) {
+            if (!claimed[msg.sender]) {
                 require(_amount <= BASE_ALLOWANCE, "deposit: !userAllowance");
                 _allowance = BASE_ALLOWANCE - _amount;
+                claimed[msg.sender] = true;
             } else {
                 require(
                     userAllowance[msg.sender] >= _amount,
