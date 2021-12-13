@@ -147,7 +147,7 @@ contract AHv2Farmer is BaseStrategy {
     address public constant wavax =
         address(0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7);
     IHomoraOracle public constant homoraOralce = 
-        IHomoraOracle(0xa6BAE2f3EE27271B55779BC6071FA101431Dc8Da);
+        IHomoraOracle(0xc842CC25FE89F0A60Fe9C1fd6483B6971020Eb3A);
     // Full repay
     uint256 constant REPAY = type(uint256).max;
 
@@ -617,7 +617,7 @@ contract AHv2Farmer is BaseStrategy {
      * @param _useMinThreshold Use min threshold when selling, or sell everything
      */
     function _sellYieldToken() internal {
-        //require(_ammCheck(18, yieldToken), 'sellYieldToken: !ammCheck');
+        require(_ammCheck(18, yieldToken), 'sellYieldToken: !ammCheck');
         uint256 balance = IERC20(yieldToken).balanceOf(address(this));
         if (balance == 0) return;
         uint256[] memory amounts = uniSwapRouter.swapExactTokensForTokens(
