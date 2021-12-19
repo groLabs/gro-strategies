@@ -167,7 +167,7 @@ contract AHv2Farmer is BaseStrategy {
     // strategies current position
     uint256 public activePosition;
     // How much change we accept in AVAX price before closing or adjusting the position
-    uint256 public ilThreshold;
+    uint256 public ilThreshold = 400; // 4%
 
     // In case no direct path exists for the swap, use this token as an inermidiary step
     address immutable indirectPath;
@@ -179,7 +179,7 @@ contract AHv2Farmer is BaseStrategy {
 
     // Min amount of tokens to open/adjust positions or sell
     uint256 public minWant;
-	uint256 public ammThreshold = 100;
+	mapping(address => uint256)public ammThreshold;
 
     // Limits the size of a position based on how much is available to borrow
     uint256 public borrowLimit;
@@ -220,7 +220,7 @@ contract AHv2Farmer is BaseStrategy {
     event LogNewIlthresholdSet(uint256 ilThreshold);
     event LogNewMinWantSet(uint256 minWawnt);
     event LogNewBorrowLimit(uint256 newLimit);
-    event LogNewAmmThreshold(uint256 newThreshold);
+    event LogNewAmmThreshold(address token, uint256 newThreshold);
 
     struct PositionData {
         uint256[] wantClose; // AVAX value of position when closed [want => AVAX]
@@ -276,7 +276,7 @@ contract AHv2Farmer is BaseStrategy {
         address _indirectPath
     ) BaseStrategy(_vault) {
         profitFactor = 1000;
-        uint256 _decimals = VaultAPI(_vault).decimals();
+        uint256 _decimals = IVault(_vault).decimals();
         decimals = _decimals;
         tokenA = _tokens[0];
         tokenB = _tokens[1];
@@ -293,7 +293,6 @@ contract AHv2Farmer is BaseStrategy {
 
         uint256 _minWant = 100 * (10**_decimals);
         minWant = _minWant; // dont open or adjust a position if want is less than...
-        ilThreshold = 400; // 4%
         emit NewFarmer(_vault, _spell, _router, _pool, _poolId);
         emit LogNewMinWantSet(_minWant);
         emit LogNewIlthresholdSet(400);
@@ -329,9 +328,9 @@ contract AHv2Farmer is BaseStrategy {
      * @notice set threshold for amm check
      * @param _threshold new threshold
      */
-    function setAmmThreshold(uint256 _threshold) external onlyOwner {
-		ammThreshold = _threshold;
-		emit LogNewAmmThreshold(_threshold);
+    function setAmmThreshold(address _token, uint256 _threshold) external onlyOwner {
+		ammThreshold[_token] = _threshold;
+		emit LogNewAmmThreshold(_token, _threshold);
     }
 
     /*
@@ -1151,17 +1150,21 @@ contract AHv2Farmer is BaseStrategy {
         uint256 _decimals,
         address _start
     ) internal view returns (bool) {
+        // Homor oracle avax price for token
         uint256 ethPx = IHomoraOracle(homoraOralce).getETHPx(_start);
         address[] memory path = new address[](2);
         path[0] = _start;
         path[1] = wavax;
+        // Joe router price
         uint256[] memory amounts = uniSwapRouter.getAmountsOut(
             10 ** _decimals,
             path
         );
+        // Normalize homora price and add the default decimal factor to get it to BP
         uint256 diff = (ethPx * 10**(_decimals + 4) / 2 ** 112) / amounts[1];
         diff = (diff > PERCENTAGE_DECIMAL_FACTOR) ? diff - PERCENTAGE_DECIMAL_FACTOR : PERCENTAGE_DECIMAL_FACTOR - diff;
-        if (diff < ammThreshold) return true; 
+        // check the difference against the ammThreshold
+        if (diff < ammThreshold[_start]) return true; 
     }
 
     /**
@@ -1220,7 +1223,7 @@ contract AHv2Farmer is BaseStrategy {
             _adjustPosition(debtOutstanding);
         }
 
-        emit Harvested(profit, loss, debtPayment, debtOutstanding);
+        emit LogHarvested(profit, loss, debtPayment, debtOutstanding);
     }
 
     function _checkPositionHealth(uint256 _positionId)
