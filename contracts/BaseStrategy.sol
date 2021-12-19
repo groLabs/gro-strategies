@@ -114,11 +114,11 @@ abstract contract BaseStrategy {
 
     // The maximum number of seconds between harvest calls. See
     // `setMaxReportDelay()` for more details.
-    uint256 public maxReportDelay;
+    uint256 public maxReportDelay = 21600;
 
     // The minimum multiple that `_callCost` must be above the credit/profit to
     // be "justifiable". See `setProfitFactor()` for more details.
-    uint256 public profitFactor;
+    uint256 public profitFactor = 100;
 
     // Use this to adjust the threshold at which running a debt causes a
     // harvest trigger. See `setDebtThreshold()` for more details.
@@ -142,13 +142,6 @@ abstract contract BaseStrategy {
         vault = IVault(_vault);
         want = IERC20(IVault(_vault).token());
         want.safeApprove(_vault, type(uint256).max); // Give Vault unlimited access (might save gas)
-        rewards = msg.sender;
-        keeper = msg.sender;
-
-        // initialize variables
-        minReportDelay = 0;
-        maxReportDelay = 21600;
-        profitFactor = 100;
     }
 
     function name() external view virtual returns (string memory);
@@ -573,7 +566,7 @@ abstract contract BaseStrategy {
         internal
         view
         virtual
-        returns (address[] memory);
+        returns (address[] memory) {}
 
     /**
      * @notice

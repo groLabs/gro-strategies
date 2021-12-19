@@ -275,7 +275,6 @@ contract AHv2Farmer is BaseStrategy {
         address[] memory _tokens,
         address _indirectPath
     ) BaseStrategy(_vault) {
-        profitFactor = 1000;
         uint256 _decimals = IVault(_vault).decimals();
         decimals = _decimals;
         tokenA = _tokens[0];
@@ -290,12 +289,7 @@ contract AHv2Farmer is BaseStrategy {
         uniSwapRouter = IUni(_router);
         pool = IUniPool(_pool);
         poolId = _poolId;
-
-        uint256 _minWant = 100 * (10**_decimals);
-        minWant = _minWant; // dont open or adjust a position if want is less than...
         emit NewFarmer(_vault, _spell, _router, _pool, _poolId);
-        emit LogNewMinWantSet(_minWant);
-        emit LogNewIlthresholdSet(400);
     }
 
     /// Strategy name
@@ -362,14 +356,11 @@ contract AHv2Farmer is BaseStrategy {
         view
         returns (uint256)
     {
-        if (_positionId == 0) {
-            return 0;
-        }
-        uint256 _collId = positions[_positionId].collId;
+        if (_positionId == 0) return 0;
         // get balance of collateral
         uint256 amount = positions[_positionId].collateral;
         (uint256 pid, uint256 stYieldTokenPerShare) = wMasterChef.decodeId(
-            _collId
+            positions[_positionId].collId
         );
         (, , , uint256 enYieldTokenPerShare) = IMasterChef(masterChef).poolInfo(
             pid
@@ -405,78 +396,19 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
-     * @notice make an adjustment to the current position - this will either add to or remove assets
-     *      from the current position.
-     *      Removing from position:
-     *          Removals will occur when the vault adapter atempts to withdraw assets from the strategy,
-     *          the position will attempt to withdraw only want. If AVAX ends up being withdrawn, this will
-     *          not be sold when adjusting the position.
-     *      Adding to position:
-     *          If additional funds have been funneled into the strategy, and a position already is running,
-     *          the strategy will add the available funds to the strategy. This adjusts the current position
-     *          impermanent loss and the positions price in relation to calculate the ilThreshold
-     * @param _positionId ID of active position
-     * @param amounts amount to adjust position by [want, AVAX], when withdrawing we will atempt to repay
-     *      the AVAX amount, when adding we will borrow this amount
-     * @param _collateral collateral to remove (0 if adding to position)
-     * @param _borrow Will we atempt to borrow when adding to the position
-     * @param _withdraw Will we add to or remove assets from the position
-     */
-    function _adjustPosition(
-        uint256 _positionId,
-        uint256[] memory _amounts,
-        uint256 _collateral,
-        bool _borrow,
-        bool _withdraw
-    ) internal {
-        // adjust by removing
-        require(_ammCheck(decimals, address(want)), '_adjustPosition: !ammCheck');
-        if (_withdraw) {
-            uint256[] memory minAmounts = new uint256[](2);
-            // AHv2 std slippage = 100 BP
-            minAmounts[1] =
-                (_amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100)) /
-                PERCENTAGE_DECIMAL_FACTOR;
-            minAmounts[0] = 0;
-
-            // minAmount we want to get out, collateral we will burn and amount we want to repay
-            RepayAmounts memory amt = _formatClose(
-                minAmounts,
-                _collateral,
-                _amounts[1]
-            );
-            IHomora(homoraBank).execute(
-                _positionId,
-                spell,
-                abi.encodeWithSignature(spellClose, tokenA, tokenB, amt)
-            );
-            // adjust by adding
-        } else {
-            Amounts memory amt = _formatOpen(_amounts, _borrow);
-            IHomora(homoraBank).execute(
-                _positionId,
-                spell,
-                abi.encodeWithSignature(spellOpen, tokenA, tokenB, amt, poolId)
-            );
-        }
-        // update the position data
-        _setPositionData(_positionId, _amounts, false, _withdraw);
-    }
-
-    /*
      * @notice Open a new AHv2 position with market neutral leverage
      * @param amount amount of want to provide to prosition
      */
-    function _openPosition(uint256 _amount) internal {
+    function _openPosition(bool _new, uint256 _positionId, uint256 _amount) internal {
         require(_ammCheck(decimals, address(want)), '_openPosition: !ammCheck');
         (uint256[] memory amounts, ) = _calcSingleSidedLiq(_amount, false);
         Amounts memory amt = _formatOpen(amounts, true);
-        uint256 positionId = IHomora(homoraBank).execute(
-            0,
+        _positionId = IHomora(homoraBank).execute(
+            _positionId,
             spell,
             abi.encodeWithSignature(spellOpen, tokenA, tokenB, amt, poolId)
         );
-        _setPositionData(positionId, amounts, true, false);
+        _setPositionData(_positionId, amounts, _new, false);
     }
 
     /*
@@ -541,7 +473,7 @@ contract AHv2Farmer is BaseStrategy {
         uint256 _positionId
     ) external onlyAuthorized {
         require(_ammCheck(decimals, address(want)), 'forceClose: !ammCheck');
-        _closePosition(_positionId, true);
+        _closePosition(_positionId, 0, true);
     }
 
     /*
@@ -549,43 +481,66 @@ contract AHv2Farmer is BaseStrategy {
      * @param _positionId ID of position to close
      * @param _force Force close position, set minAmount to 0/0
      */
-    function _closePosition(uint256 _positionId, bool _force) internal {
+    function _closePosition(uint256 _positionId, uint256 _amount, bool _force) internal {
         require(_ammCheck(decimals, address(want)), '_closePosition: !ammCheck');
         // active position data
-        PositionData storage pd = positions[_positionId];
-        uint256 collateral = pd.collateral;
         RepayAmounts memory amt;
-        if (!_force) {
-            uint256[] memory debts = pd.debt;
-            // Calculate amount we expect to get out by closing the position (applying 0.5% slippage)
-            // Note, expected will be [AVAX, want], as debts always will be [AVAX] and solidity doesnt support
-            // sensible operations like [::-1] or zip...
-            (uint256[] memory minAmount, ) = _calcAvailable(
-                (collateral * (PERCENTAGE_DECIMAL_FACTOR - 50)) /
-                    PERCENTAGE_DECIMAL_FACTOR,
-                debts
+        uint256[] memory minAmounts;
+        uint256[] memory amounts;
+        uint256 collateral;
+        uint256 wantBal;
+        bool _partial;
+        if (_amount > 0) {
+            _partial = true;
+            (amounts, collateral) = _calcSingleSidedLiq(
+                _amount,
+                true
             );
-            amt = _formatClose(minAmount, collateral, 0);
+            minAmounts = new uint256[](2);
+            minAmounts[1] =
+                (amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100)) /
+                PERCENTAGE_DECIMAL_FACTOR;
+            minAmounts[0] = 0;
         } else {
-            amt = _formatClose(new uint256[](2), collateral, 0);
+            PositionData storage pd = positions[_positionId];
+            collateral = pd.collateral;
+            uint256[] memory debts = pd.debt;
+            wantBal = want.balanceOf(address(this));
+            amounts = new uint256[](2);
+            if (!_force) {
+                // Calculate amount we expect to get out by closing the position (applying 0.5% slippage)
+                // Note, expected will be [AVAX, want], as debts always will be [AVAX] and solidity doesnt support
+                // sensible operations like [::-1] or zip...
+                (minAmounts, ) = _calcAvailable(
+                    (collateral * (PERCENTAGE_DECIMAL_FACTOR - 50)) /
+                        PERCENTAGE_DECIMAL_FACTOR,
+                    debts
+                );
+            } else {
+                minAmounts = new uint256[](2);
+            }
         }
-        uint256 wantBal = want.balanceOf(address(this));
+        amt = _formatClose(minAmounts, collateral, amounts[1]);
         IHomora(homoraBank).execute(
             _positionId,
             spell,
             abi.encodeWithSignature(spellClose, tokenA, tokenB, amt)
         );
-        // Do not sell after closing down the position, AVAX/yieldToken are sold during
-        //  the early stages for the harvest flow (see prepareReturn)
-        // total amount of want retrieved from position
-        wantBal = want.balanceOf(address(this)) - wantBal;
-        PositionData storage pos = positions[_positionId];
-        pos.timestamps.push(block.timestamp);
-        pos.totalClose = wantBal;
-        uint256[] memory _wantClose = _uniPrice(pos.wantOpen[0], address(want));
-        pos.wantClose = _wantClose;
-        activePosition = 0;
-        emit LogPositionClosed(_positionId, wantBal, _wantClose);
+        if (_partial) {
+            _setPositionData(_positionId, amounts, false, true);
+        } else {
+            // Do not sell after closing down the position, AVAX/yieldToken are sold during
+            //  the early stages for the harvest flow (see prepareReturn)
+            // total amount of want retrieved from position
+            wantBal = want.balanceOf(address(this)) - wantBal;
+            PositionData storage pos = positions[_positionId];
+            pos.timestamps.push(block.timestamp);
+            pos.totalClose = wantBal;
+            uint256[] memory _wantClose = _uniPrice(pos.wantOpen[0], address(want));
+            pos.wantClose = _wantClose;
+            activePosition = 0;
+            emit LogPositionClosed(_positionId, wantBal, _wantClose);
+        }
     }
 
     /*
@@ -957,9 +912,8 @@ contract AHv2Farmer is BaseStrategy {
         returns (uint256[] memory, uint256)
     {
         (uint112 resA, uint112 resB) = _getPoolReserves();
-        uint256 k = 1000;
         uint256[] memory amt = new uint256[](2);
-        amt[1] = (resB * k * _amount - resB) / (resA * k + 10**decimals) - 1;
+        amt[1] = (resB * 1000 * _amount - resB) / (resA * 1000 + 10**decimals) - 1;
         amt[0] = _amount;
         if (_withdraw) {
             uint256 poolBalance = IUniPool(pool).totalSupply();
@@ -981,11 +935,9 @@ contract AHv2Farmer is BaseStrategy {
     function _liquidatePosition(uint256 _amountNeeded)
         internal
         override
-        returns (uint256, uint256)
+        returns (uint256 amountFreed, uint256 loss)
     {
         require(_ammCheck(decimals, address(want)), '_liquidatePosition: !ammCheck');
-        uint256 _amountFreed = 0;
-        uint256 _loss = 0;
         // want in contract + want value of position based of AVAX value of position (total - borrowed)
         uint256 _positionId = activePosition;
 
@@ -995,27 +947,27 @@ contract AHv2Farmer is BaseStrategy {
 
         // cannot repay the entire debt
         if (debt > assets) {
-            _loss = debt - assets;
-            if (_loss >= _amountNeeded) {
-                _loss = _amountNeeded;
-                _amountFreed = 0;
-                return (_amountFreed, _loss);
+            loss = debt - assets;
+            if (loss >= _amountNeeded) {
+                loss = _amountNeeded;
+                amountFreed = 0;
+                return (amountFreed, loss);
             }
-            _amountNeeded = _amountNeeded - _loss;
+            _amountNeeded = _amountNeeded - loss;
         }
 
         // if the asset value of our position is less than what we need to withdraw, close the position
         if (assets < _amountNeeded) {
             if (activePosition != 0) {
-                _closePosition(_positionId, false);
+                _closePosition(_positionId, 0, false);
             }
             _sellAVAX();
             _sellYieldToken();
-            _amountFreed = Math.min(
+            amountFreed = Math.min(
                 _amountNeeded,
                 want.balanceOf(address(this))
             );
-            return (_amountFreed, _loss);
+            return (amountFreed, loss);
         } else {
             // do we have enough assets in strategy to repay?
             if (_balance < _amountNeeded) {
@@ -1032,24 +984,20 @@ contract AHv2Farmer is BaseStrategy {
 
                 // if we want to remove 80% or more of the position, just close it
                 if ((remainder * PERCENTAGE_DECIMAL_FACTOR) / assets >= 8000) {
-                    _closePosition(_positionId, false);
+                    _closePosition(_positionId, 0, false);
                 } else {
-                    (
-                        uint256[] memory repay,
-                        uint256 lpAmount
-                    ) = _calcSingleSidedLiq(remainder, true);
-                    _adjustPosition(_positionId, repay, lpAmount, false, true);
+                    _closePosition(_positionId, remainder, false);
                 }
 
                 // dont return more than was asked for
-                _amountFreed = Math.min(
+                amountFreed = Math.min(
                     _amountNeeded,
                     want.balanceOf(address(this))
                 );
             } else {
-                _amountFreed = _amountNeeded;
+                amountFreed = _amountNeeded;
             }
-            return (_amountFreed, _loss);
+            return (amountFreed, loss);
         }
     }
 
@@ -1069,27 +1017,23 @@ contract AHv2Farmer is BaseStrategy {
         uint256 _positionId = activePosition;
 		(bool check, uint256 remainingLimit) = _checkPositionHealth(activePosition);
         if (check) {
-            _closePosition(_positionId, false);
+            _closePosition(_positionId, 0, false);
             return;
         }
         //we are spending all our cash unless we have debt outstanding
-        uint256 _wantBal = want.balanceOf(address(this));
-        if (_wantBal < _debtOutstanding && _positionId != 0) {
+        uint256 wantBal = want.balanceOf(address(this));
+        if (wantBal < _debtOutstanding && _positionId != 0) {
             // do a partial withdrawal
-            (uint256[] memory repay, uint256 lpAmount) = _calcSingleSidedLiq(
-                _debtOutstanding - _wantBal,
-                true
-            );
-            _adjustPosition(_positionId, repay, lpAmount, false, true);
+            _closePosition(_positionId, _debtOutstanding - wantBal, false);
             return;
         }
 
         // check if the current want amount is large enough to justify opening/adding
         // to an existing position, else do nothing
-        if (_wantBal > remainingLimit) _wantBal = remainingLimit;
-        if (_wantBal > minWant) {
+        if (wantBal > remainingLimit) wantBal = remainingLimit;
+        if (wantBal > minWant) {
             if (_positionId == 0) {
-                _openPosition(_wantBal);
+                _openPosition(true, 0, wantBal);
             } else {
                 // TODO logic to lower the colateral ratio
                 // When adding to the position we will try to stabilize the collateralization ratio, this
@@ -1103,24 +1047,9 @@ contract AHv2Farmer is BaseStrategy {
                 //     uint256[] memory oldPrice = positions[_positionId].openWant;
                 //     uint256 newPercentage = (newPosition[0] * PERCENTAGE_DECIMAL_FACTOR / oldPrice[0])
                 // }
-                (uint256[] memory newPosition, ) = _calcSingleSidedLiq(
-                    _wantBal,
-                    false
-                );
-                _adjustPosition(_positionId, newPosition, 0, true, false);
+                _openPosition(false, _positionId, wantBal);
             }
         }
-    }
-
-    /*
-     * @notice tokens that cannot be removed from this strategy (on top of want which is protected by default)
-     */
-    function _protectedTokens()
-        internal
-        view
-        override
-        returns (address[] memory)
-    {
     }
 
     /*
@@ -1146,6 +1075,13 @@ contract AHv2Farmer is BaseStrategy {
         require(activePosition == 0, "prepareMigration: active position");
     }
 
+    /*
+     * @notice Compare prices in amm vs external oralce
+     * @param _decimals decimal of token, used to determine spot price
+     * @param _start token to check
+     * @dev The following price check is done AHOracle [token/Avax] / Amm [token/Avax], this
+     *      Value needs to be within the AMMthreshold for the transaction to proceed
+     */
     function _ammCheck(
         uint256 _decimals,
         address _start
