@@ -275,13 +275,27 @@ contract("VaultAdapter test", function (accounts) {
       await usdcAdaptor.strategyHarvest(0, 0, 0, { from: bot });
       const amount = "10000";
       const norm_amount = toBN(amount).mul(toBN(1e6));
-      await usdcAdaptor.withdraw(norm_amount, 50, { from: investor2 });
+      // simulate some time passing to release some of the gains
+      for (let i = 0; i < 10; i++) {
+          await network.provider.send("evm_mine");
+      }
+      // gain should not affect withdrawals negatively
 
+      await setBalance("usdc", investor2, "0"); // make sure no assets in investor 2 wallet
+      await usdcAdaptor.withdraw(norm_amount, 0, { from: investor2 });
+      // expect that pps > 1 so we should get bk a bit more
+      await expect(usdc.balanceOf(investor2)).to.eventually.be.a.bignumber.gt(norm_amount);
+
+
+      const totalLockedProfit = await usdcAdaptor.lockedProfit();
       await setBalance("usdc", secondaryStrategy.address, "6000"); // 50 want loss
       await usdcAdaptor.withdraw(norm_amount, 5000, { from: investor1 });
+      // investor 1 has pulled all
       await expect(
         usdcAdaptor.balanceOf(investor1)
       ).to.eventually.be.a.bignumber.equal(toBN(0));
+      // event though the pps > 1 due to gains and slow release, the user has effectively eaten
+      // up the loss from strat 2, so will have less than norm_amount
       await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.lt(
         norm_amount
       );
@@ -293,7 +307,7 @@ contract("VaultAdapter test", function (accounts) {
       ).to.eventually.be.a.bignumber.equal(toBN(0));
       return expect(
         usdcAdaptor.totalAssets()
-      ).to.eventually.be.a.bignumber.equal(toBN(0));
+      ).to.eventually.be.a.bignumber.closeTo(toBN("1500").mul(toBN(1E6)), toBN(10E6)); // remaining assets should be close to releasing profits
     });
 
     it("Should revert if withdrawal loss is above max allowed loss", async () => {
@@ -440,7 +454,10 @@ contract("VaultAdapter test", function (accounts) {
     it("Should mint assets to rewards account during harvest if there is a withdrawal fee", async function () {
       const amount = "22000";
       const gain = "16000"; // 22000 - 6000
+      console.log('pps ' + await usdcAdaptor.getPricePerShare());
       const norm_amount = toBN(gain).mul(toBN(1e6));
+
+      // simulate gains
       await setBalance("usdc", primaryStrategy.address, amount);
       const adaptor_assets = await usdcAdaptor.totalAssets();
       await expect(usdcAdaptor.strategies(primaryStrategy.address))
@@ -449,12 +466,17 @@ contract("VaultAdapter test", function (accounts) {
       await expect(
         usdcAdaptor.balanceOf(governance)
       ).to.eventually.be.a.bignumber.equal(toBN(0));
+
+      // expect amount that the rewards contract will hold is the percentage gain shuffled to the rewards
+      // contract (3200) * totalSupply / freeAssets
+      // Free assets here is calculated prior to slow release, meaning that it takes the full gain into account
+      const expectBalance = norm_amount.mul(toBN(2000)).div(toBN(10000)).mul(await usdcAdaptor.totalSupply()).div(toBN("26000").mul(toBN(1E6)))
+
       await usdcAdaptor.strategyHarvest(0, 0, 0, { from: bot });
+      console.log('pps ' + await usdcAdaptor.getPricePerShare());
       return expect(
         usdcAdaptor.balanceOf(governance)
-      ).to.eventually.be.a.bignumber.equal(
-        norm_amount.mul(toBN(2000)).div(toBN(10000))
-      );
+      ).to.eventually.be.a.bignumber.closeTo(expectBalance, toBN(1E6));
     });
   });
 
@@ -614,6 +636,67 @@ contract("VaultAdapter test", function (accounts) {
         usdcAdaptor.debtOutstanding(primaryStrategy.address)
       ).to.eventually.be.a.bignumber.eq(toBN(0));
     });
+
+    it("Should release profits slowly to users", async function () {
+      const amount = "10000";
+      await setBalance("usdc", primaryStrategy.address, amount);
+      const adaptor_assets = await usdcAdaptor.totalAssets();
+
+      await expect(usdcAdaptor.lockedProfit()).to.eventually.be.a.bignumber.eq(toBN(0));
+      const initalPps = await usdcAdaptor.getPricePerShare();
+      await usdcAdaptor.strategyHarvest(0, 0, 0, { from: bot });
+      await expect(usdcAdaptor.totalAssets()).to.eventually.be.a.bignumber.gt(
+        adaptor_assets
+      );
+      await expect(usdcAdaptor.lockedProfit()).to.eventually.be.a.bignumber.gt(toBN(0));
+      await expect(usdcAdaptor.getPricePerShare()).to.eventually.be.a.bignumber.eq(initalPps);
+      const postHarvestPps = await usdcAdaptor.getPricePerShare();
+      const postHarvestLocked = await usdcAdaptor.lockedProfit();
+      const postHarvestAdaptorAssets = await usdcAdaptor.lockedProfit();
+
+      for (let i = 0; i < 10; i++) {
+          await network.provider.send("evm_mine");
+      }
+
+      await expect(usdcAdaptor.lockedProfit()).to.eventually.be.a.bignumber.eq(postHarvestLocked);
+      await expect(usdcAdaptor.getPricePerShare()).to.eventually.be.a.bignumber.gt(postHarvestPps);
+      const newGain = toBN(amount).mul(toBN(2)).toString()
+      await setBalance("usdc", primaryStrategy.address, newGain);
+      const postMinePps = await usdcAdaptor.getPricePerShare();
+
+      await usdcAdaptor.strategyHarvest(0, 0, 0, { from: bot });
+      await expect(usdcAdaptor.totalAssets()).to.eventually.be.a.bignumber.gt(
+          postHarvestAdaptorAssets
+      );
+      await expect(usdcAdaptor.lockedProfit()).to.eventually.be.a.bignumber.gt(postHarvestLocked);
+      await expect(usdcAdaptor.getPricePerShare()).to.eventually.be.a.bignumber.gt(postMinePps);
+      const post2ndHarvestPps = await usdcAdaptor.getPricePerShare()
+
+      for (let i = 0; i < 10; i++) {
+          await network.provider.send("evm_mine");
+      }
+
+      await expect(usdcAdaptor.getPricePerShare()).to.eventually.be.a.bignumber.gt(post2ndHarvestPps);
+      const finalPps = await usdcAdaptor.getPricePerShare();
+
+      // simulate small loss
+      const expectLockedProfit =  (await usdcAdaptor.lockedProfit()).sub(await usdc.balanceOf(primaryStrategy.address))
+      await setBalance("usdc", primaryStrategy.address, "0");
+      await usdcAdaptor.strategyHarvest(0, 0, 0, { from: bot });
+      // loss not greater than locked profit => locked profit expected to be close to original locked profit - loss
+      await expect(usdcAdaptor.lockedProfit()).to.eventually.be.a.bignumber.closeTo(expectLockedProfit, toBN(10E6));
+      // PPS still expected to increase as loss not > previous gain
+      await expect(usdcAdaptor.getPricePerShare()).to.eventually.be.a.bignumber.gt(finalPps);
+
+      // simulate large loss
+      const postLossExpectLockedProfit =  (await usdcAdaptor.lockedProfit()).sub(await usdc.balanceOf(primaryStrategy.address))
+      await setBalance("usdc", primaryStrategy.address, "0");
+      await usdcAdaptor.strategyHarvest(0, 0, 0, { from: bot });
+      // loss greater than locked profit => locked profit expected to be 0
+      await expect(usdcAdaptor.lockedProfit()).to.eventually.be.a.bignumber.eq(toBN(0));
+      // PPS expected to drop as loss > locked profit
+      return expect(usdcAdaptor.getPricePerShare()).to.eventually.be.a.bignumber.lt(finalPps);
+    });
   });
 
   describe("Assets", function () {
@@ -627,7 +710,7 @@ contract("VaultAdapter test", function (accounts) {
       await usdcAdaptor.strategyHarvest(1, 0, 0, { from: bot });
     });
 
-    it("Should increase the value of user assets after reporting a profit", async function () {
+    it("Should increase the value of user assets over a set release time", async function () {
       const amount = "10000";
       await setBalance("usdc", primaryStrategy.address, amount);
       const shareValue = await usdcAdaptor.getPricePerShare();
@@ -636,6 +719,15 @@ contract("VaultAdapter test", function (accounts) {
       await expect(usdcAdaptor.totalAssets()).to.eventually.be.a.bignumber.gt(
         adaptor_assets
       );
+      await expect(
+        usdcAdaptor.getPricePerShare()
+      ).to.eventually.be.a.bignumber.eq(shareValue);
+
+      // simulate some time passing
+      for (let i = 0; i < 10; i++) {
+        await network.provider.send("evm_mine");
+      }
+
       return expect(
         usdcAdaptor.getPricePerShare()
       ).to.eventually.be.a.bignumber.gt(shareValue);
