@@ -188,7 +188,7 @@ abstract contract BaseStrategy {
 
         // initialize variables
         minReportDelay = 0;
-        maxReportDelay = 86400;
+        maxReportDelay = 21600;
         profitFactor = 100;
         debtThreshold = 0;
     }
