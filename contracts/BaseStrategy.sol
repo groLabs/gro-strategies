@@ -355,7 +355,12 @@ abstract contract BaseStrategy {
      * @param _callCost The keeper's estimated cast cost to call `tend()`.
      * @return `true` if `tend()` should be called, `false` otherwise.
      */
-    function tendTrigger(uint256 _callCost) public view virtual returns (bool) {}
+    function tendTrigger(uint256 _callCost)
+        public
+        view
+        virtual
+        returns (bool)
+    {}
 
     /**
      * @notice
@@ -566,7 +571,8 @@ abstract contract BaseStrategy {
         internal
         view
         virtual
-        returns (address[] memory) {}
+        returns (address[] memory)
+    {}
 
     /**
      * @notice
