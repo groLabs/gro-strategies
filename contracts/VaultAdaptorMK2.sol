@@ -899,7 +899,7 @@ contract VaultAdaptorMK2 is
         uint256 _debtPayment
     ) external returns (uint256) {
         StrategyParams storage _strategy = strategies[msg.sender];
-        require(_strategy.active, "report: !activated");
+        require(_strategy.activation > 0, "report: !activated");
         IERC20 _token = IERC20(token);
         require(
             _token.balanceOf(msg.sender) >= _gain + _debtPayment,

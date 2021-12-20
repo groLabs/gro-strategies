@@ -45,7 +45,7 @@ let usdcAdaptor,
     investor2,
     bouncer;
 
-contract('Alpha homora test', function (accounts) {
+contract('Alpha homora test usdc/avax joe pool', function (accounts) {
   admin = accounts[0]
   governance = accounts[1]
   bouncer = accounts[2]
@@ -750,7 +750,133 @@ contract('Alpha homora test', function (accounts) {
         const position = primaryStrategy.activePosition()
         // force close the position
         await primaryStrategy.setAmmThreshold(usdc.address, 0, {from: governance});
-        return expect(primaryStrategy.forceClose(position, {from: governance})).to.eventually.be.rejected;
+        await expect(primaryStrategy.forceClose(position, {from: governance})).to.eventually.be.rejected;
+        await primaryStrategy.setAmmThreshold(usdc.address, 200, {from: governance});
+        await primaryStrategy.setIlThreshold(0, {from: governance});
+        await primaryStrategy.setAmmThreshold(sushiToken, 0, {from: governance});
+        return expect(usdcAdaptor.strategyHarvest(0, {from: governance})).to.eventually.be.rejected;
+    })
+
+    it('Should be possible to get positionData', async () => {
+        await setBalance('usdc', investor1, '10000');
+        await usdcAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        const pos = await primaryStrategy.activePosition();
+        return expect(primaryStrategy.getPosition(pos)).to.eventually.have.property("collateral").that.is.a.bignumber.gt(toBN("0"));
+    })
+
+    it('Should be return 0 when calling calcEstimatedWant if theres no open position', async () => {
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
+        return expect(primaryStrategy.calcEstimatedWant()).to.eventually.be.a.bignumber.equal(toBN(0));
+    })
+
+    it('Should be return false when calling volatilityCheck if theres no open position', async () => {
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
+        return expect(primaryStrategy.volatilityCheck()).to.eventually.be.false;
+    })
+
+    it('Should be return false when calling tendTrigger', async () => {
+        return expect(primaryStrategy.tendTrigger(0)).to.eventually.be.false;
+    })
+
+    it('Should be possible to migrate a strategy', async () => {
+        const newStrat= await AHStrategy.new(usdcVault.address, sushiSpell, router, pool, poolID, [tokens.usdc.address, tokens.avax.address], ZERO);
+        await setBalance('usdc', investor1, '10000');
+        await usdcAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+
+        await expect(usdcAdaptor.migrateStrategy(primaryStrategy.address, newStrat.address, {from: governance})).to.eventually.be.rejectedWith('prepareMigration: active position');
+        await primaryStrategy.forceClose(await primaryStrategy.activePosition(), {from: governance});
+        return expect(usdcAdaptor.migrateStrategy(primaryStrategy.address, newStrat.address, {from: governance})).to.eventually.be.fulfilled;
+    })
+
+    it('Should be possible to pull out all assets through an emergency exit', async () => {
+        await setBalance('usdc', investor1, '10000');
+        await usdcAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+
+        await primaryStrategy.setEmergencyExit({from: governance});
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(toBN(1E6));
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        // some leftover assets are acceptable
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(toBN(1E6));
+    })
+
+    it.only('Should be possible to repay debt to the vault', async () => {
+        await setBalance('usdc', investor1, '10000');
+        await usdcAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(toBN(1E6));
+        await usdcAdaptor.setDebtRatio(primaryStrategy.address, 5000, {
+          from: governance,
+        });
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(toBN('5000').mul(toBN(1E6)), toBN(1E6));
+        await usdcAdaptor.setDebtRatio(primaryStrategy.address, 0, {
+          from: governance,
+        });
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        // some leftover assets are acceptable
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(toBN(1E6));
+    })
+
+    it.only('Should report loss correctly', async () => {
+        await setBalance('usdc', investor1, '10000');
+        await usdcAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await primaryStrategy.setBorrowLimit(toBN('8000').mul(toBN(1E6)), {from: governance});
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        await expect(usdc.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(toBN(2000).mul(toBN(1E6)), toBN(1E6));
+        await setBalance('usdc', primaryStrategy.address, '0');
+
+        await usdcAdaptor.withdraw(toBN(1900).mul(toBN(1E6)), 10000, {from:investor1});
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.equal(toBN(0));
+        await usdcAdaptor.withdraw(toBN(2000).mul(toBN(1E6)), 1000, {from:investor1});
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(toBN(0));
+        const investor_balance = await usdc.balanceOf(investor1);
+        await usdcAdaptor.withdraw(toBN(200).mul(toBN(1E6)), 100, {from:investor1});
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(investor_balance);
+        const investor_balance_2 = await usdc.balanceOf(investor1);
+
+        // withdrawal from loose assets in strategy
+        await primaryStrategy.forceClose(await primaryStrategy.activePosition(), {from: governance});
+        await usdcAdaptor.withdraw(toBN(200).mul(toBN(1E6)), 100, {from:investor1});
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(investor_balance_2);
+        await usdcAdaptor.withdraw(constants.MAX_UINT256, 100, {from:investor1});
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.closeTo(toBN('8000').mul(toBN(1E6)), toBN(1E6));
+
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(toBN(1E6));
+    })
+
+    it.only('Should report loss correctly part 2', async () => {
+        await setBalance('usdc', investor1, '10000');
+        await usdcAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await primaryStrategy.setBorrowLimit(toBN('8000').mul(toBN(1E6)), {from: governance});
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        await expect(usdc.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(toBN(2000).mul(toBN(1E6)), toBN(1E6));
+        await setBalance('usdc', primaryStrategy.address, '0');
+
+        await usdcAdaptor.withdraw(toBN(1900).mul(toBN(1E6)), 10000, {from:investor1});
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.equal(toBN(0));
+        await usdcAdaptor.withdraw(toBN(2000).mul(toBN(1E6)), 1000, {from:investor1});
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(toBN(0));
+        const investor_balance = await usdc.balanceOf(investor1);
+        await usdcAdaptor.withdraw(toBN(200).mul(toBN(1E6)), 100, {from:investor1});
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(investor_balance);
+        const investor_balance_2 = await usdc.balanceOf(investor1);
+
+        // withdrawal from active position
+        await usdcAdaptor.withdraw(toBN(1000).mul(toBN(1E6)), 100, {from:investor1});
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(investor_balance_2);
+        await usdcAdaptor.withdraw(constants.MAX_UINT256, 100, {from:investor1});
+        await expect(usdc.balanceOf(investor1)).to.eventually.be.a.bignumber.closeTo(toBN('8000').mul(toBN(1E6)), toBN(1E6));
+
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(toBN(1E6));
     })
   })
 })

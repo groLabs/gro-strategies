@@ -45,7 +45,7 @@ let usdtAdaptor,
     investor2,
     bouncer;
 
-contract('Alpha homora test', function (accounts) {
+contract('Alpha homora test usdt/avax joe pool', function (accounts) {
   admin = accounts[0]
   governance = accounts[1]
   bouncer = accounts[2]

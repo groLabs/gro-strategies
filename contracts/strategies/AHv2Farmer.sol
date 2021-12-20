@@ -402,7 +402,7 @@ contract AHv2Farmer is BaseStrategy {
     function _openPosition(bool _new, uint256 _positionId, uint256 _amount) internal {
         require(_ammCheck(decimals, address(want)), '_openPosition: !ammCheck');
         (uint256[] memory amounts, ) = _calcSingleSidedLiq(_amount, false);
-        Amounts memory amt = _formatOpen(amounts, true);
+        Amounts memory amt = _formatOpen(amounts);
         _positionId = IHomora(homoraBank).execute(
             _positionId,
             spell,
@@ -472,7 +472,6 @@ contract AHv2Farmer is BaseStrategy {
     function forceClose(
         uint256 _positionId
     ) external onlyAuthorized {
-        require(_ammCheck(decimals, address(want)), 'forceClose: !ammCheck');
         _closePosition(_positionId, 0, true);
     }
 
@@ -587,9 +586,8 @@ contract AHv2Farmer is BaseStrategy {
     /*
      * @notice format the open position input struct
      * @param _amounts Amounts for position
-     * @param _borrow Decides if we want to borrow ETH or not
      */
-    function _formatOpen(uint256[] memory _amounts, bool _borrow)
+    function _formatOpen(uint256[] memory _amounts)
         internal
         view
         returns (Amounts memory amt)
@@ -597,14 +595,10 @@ contract AHv2Farmer is BaseStrategy {
         // Unless we borrow we only supply a value for the want we provide
         if (tokenA == address(want)) {
             amt.aUser = _amounts[0];
-            if (_borrow) {
-                amt.bBorrow = _amounts[1];
-            }
+            amt.bBorrow = _amounts[1];
         } else {
             amt.bUser = _amounts[0];
-            if (_borrow) {
-                amt.aBorrow = _amounts[1];
-            }
+            amt.aBorrow = _amounts[1];
         }
     }
 
@@ -802,18 +796,33 @@ contract AHv2Farmer is BaseStrategy {
         uint256 _positionId = activePosition;
         uint256 balance;
         // only try to realize profits if there is no active position
-        if (_positionId == 0) {
+        if (_positionId == 0 || _debtOutstanding > 0) {
             _sellYieldToken();
             _sellAVAX();
             balance = want.balanceOf(address(this));
+            if (balance < _debtOutstanding) {
+                // withdraw to cover the debt
+                if (
+                    (positions[_positionId].wantOpen[0] + balance) * PERCENTAGE_DECIMAL_FACTOR / 
+                        _debtOutstanding >= 8000
+                ) {
+                    balance = 0;
+                } else {
+                    balance = _debtOutstanding - balance;
+                }
+                _closePosition(_positionId, balance, false);
+                balance = want.balanceOf(address(this));
+            }
             _debtPayment = Math.min(balance, _debtOutstanding);
 
-            uint256 debt = vault.strategies(address(this)).totalDebt;
-            // Balance - Total Debt is profit
-            if (balance > debt) {
-                _profit = balance - debt;
-            } else {
-                _loss = debt - balance;
+            if (_positionId == 0) {
+                uint256 debt = vault.strategies(address(this)).totalDebt;
+                // Balance - Total Debt is profit
+                if (balance > debt) {
+                    _profit = balance - debt;
+                } else {
+                    _loss = debt - balance;
+                }
             }
         }
     }
@@ -937,7 +946,6 @@ contract AHv2Farmer is BaseStrategy {
         override
         returns (uint256 amountFreed, uint256 loss)
     {
-        require(_ammCheck(decimals, address(want)), '_liquidatePosition: !ammCheck');
         // want in contract + want value of position based of AVAX value of position (total - borrowed)
         uint256 _positionId = activePosition;
 
@@ -956,26 +964,14 @@ contract AHv2Farmer is BaseStrategy {
             _amountNeeded = _amountNeeded - loss;
         }
 
-        // if the asset value of our position is less than what we need to withdraw, close the position
-        if (assets < _amountNeeded) {
-            if (activePosition != 0) {
-                _closePosition(_positionId, 0, false);
-            }
-            _sellAVAX();
-            _sellYieldToken();
-            amountFreed = Math.min(
-                _amountNeeded,
-                want.balanceOf(address(this))
-            );
-            return (amountFreed, loss);
-        } else {
-            // do we have enough assets in strategy to repay?
-            if (_balance < _amountNeeded) {
+        // do we have enough assets in strategy to repay?
+        if (_balance < _amountNeeded) {
+            if (activePosition > 0) {
                 uint256 remainder;
                 // because pulling out assets from AHv2 tends to give us less assets than
                 // we want specify, so lets see if we can pull out a bit in excess to be
                 // able to pay back the full amount
-                if (assets > _amountNeeded - _balance + 100 ** decimals) {
+                if (assets > _amountNeeded + 100 ** decimals) {
                     remainder = _amountNeeded - _balance + 100 ** decimals;
                 } else {
                     // but if not possible just pull the original amount
@@ -985,20 +981,23 @@ contract AHv2Farmer is BaseStrategy {
                 // if we want to remove 80% or more of the position, just close it
                 if ((remainder * PERCENTAGE_DECIMAL_FACTOR) / assets >= 8000) {
                     _closePosition(_positionId, 0, false);
+                    _sellAVAX();
+                    _sellYieldToken();
                 } else {
                     _closePosition(_positionId, remainder, false);
                 }
-
-                // dont return more than was asked for
-                amountFreed = Math.min(
-                    _amountNeeded,
-                    want.balanceOf(address(this))
-                );
-            } else {
-                amountFreed = _amountNeeded;
             }
-            return (amountFreed, loss);
+
+            // dont return more than was asked for
+            amountFreed = Math.min(
+                _amountNeeded,
+                want.balanceOf(address(this))
+            );
+            loss = _amountNeeded - amountFreed;
+        } else {
+            amountFreed = _amountNeeded;
         }
+        return (amountFreed, loss);
     }
 
     /*
@@ -1022,11 +1021,6 @@ contract AHv2Farmer is BaseStrategy {
         }
         //we are spending all our cash unless we have debt outstanding
         uint256 wantBal = want.balanceOf(address(this));
-        if (wantBal < _debtOutstanding && _positionId != 0) {
-            // do a partial withdrawal
-            _closePosition(_positionId, _debtOutstanding - wantBal, false);
-            return;
-        }
 
         // check if the current want amount is large enough to justify opening/adding
         // to an existing position, else do nothing
@@ -1050,21 +1044,6 @@ contract AHv2Farmer is BaseStrategy {
                 _openPosition(false, _positionId, wantBal);
             }
         }
-    }
-
-    /*
-     * @notice tokens that cannot be removed from this strategy (on top of want which is protected by default)
-     * @param _callCost Cost of calling tend in want (not used here)
-     */
-    function tendTrigger(uint256 _callCost)
-        public
-        view
-        override
-        returns (bool)
-    {
-        if (activePosition == 0) return false;
-        if (volatilityCheck()) return true;
-        return false;
     }
 
     /*
