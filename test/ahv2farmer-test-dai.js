@@ -1,7 +1,7 @@
 require('dotenv').config();
 const MockERC20 = artifacts.require('MockERC20')
 const TestStrategy = artifacts.require('TestStrategy')
-const AHStrategy = artifacts.require('AHv2Farmer')
+const AHStrategy = artifacts.require('AHv2FarmerDai')
 const VaultAdaptor = artifacts.require('VaultAdaptorMK2')
 
 const { toBN, BN, toWei } = web3.utils
@@ -109,7 +109,7 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
     daiVault = daiAdaptor;
 
     // create and add the AHv2 strategy to the adapter
-    primaryStrategy = await AHStrategy.new(daiVault.address, sushiSpell, router, pool, poolID, [tokens.avax.address, tokens.dai.address], tokens.avax.address);
+    primaryStrategy = await AHStrategy.new(daiVault.address, sushiSpell, router, pool, poolID, [tokens.avax.address, tokens.dai.address], tokens.usdc.address);
     await primaryStrategy.setKeeper(daiAdaptor.address, {from: governance});
     const botLimit = toBN(0)
     const topLimit = toBN(2).pow(toBN(256)).sub(toBN(1));
@@ -133,7 +133,7 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
     )
 
     // add strategy to whitelist in homorabank and gov to whitelist in adapter so they can call harvest
-    await web3.eth.sendTransaction({to: AHGov, from: accounts[0], value: toWei('1', 'ether')})
+    await web3.eth.sendTransaction({to: AHGov, from: accounts[0], value: toWei('10', 'ether')})
     await homoraBank.methods.setWhitelistUsers([primaryStrategy.address], [true]).send({from: AHGov})
     await homoraBank.methods.setCreditLimits([[primaryStrategy.address, avax.address, toBN(1E18).mul(toBN(1E18)).toString()]]).send({from: AHGov})
     await daiAdaptor.addToWhitelist(governance, {from: governance});
@@ -249,10 +249,12 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
 
         // simulate price movment by trading in the pool
-        const large_number = toBN(1E6).mul(toBN(1E18));
+        const large_number = toBN(20000).mul(toBN(1E18));
+        const smaller_number = toBN(200).mul(toBN(1E18));
         let change;
         while (true) {
-            await setBalance('dai', investor1, '1000000');
+            await setBalance('avax', investor1, '200');
+            await swap(smaller_number, [tokens.avax.address, tokens.dai.address])
             await swap(large_number, [tokens.dai.address, tokens.avax.address])
             change = await primaryStrategy.volatilityCheck();
             // once were above a 4% price change
@@ -580,7 +582,7 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
 
         await masterChef.methods.updatePool(poolID).send({from: governance});
-        const initSushi =  await primaryStrategy.pendingYieldToken(position);
+        // const initSushi =  await primaryStrategy.pendingYieldToken(position);
         for (let i = 0; i < 1000; i++) {
           await network.provider.send("evm_mine");
         }
@@ -627,16 +629,16 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.equal(expected);
         // update sushi rewards
         await masterChef.methods.updatePool(poolID).send({from: governance});
-        const initSushi =  await primaryStrategy.pendingYieldToken(position);
+        //const initSushi =  await primaryStrategy.pendingYieldToken(position);
         // pass 10 blocks
         for (let i = 0; i < 10; i++) {
           await network.provider.send("evm_mine");
         }
         // no sushi rewards for dai pool
-        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.eq(expected);
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(expected, toBN(1));
         const expectedNoSushi = await primaryStrategy.estimatedTotalAssets();
         await masterChef.methods.updatePool(poolID).send({from: governance});
-        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.eq(expectedNoSushi);
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(expectedNoSushi, toBN(1));
     })
 
     // Simulate changes in expected return
