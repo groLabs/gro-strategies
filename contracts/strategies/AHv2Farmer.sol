@@ -228,7 +228,6 @@ contract AHv2Farmer is BaseStrategy {
         uint256[] wantOpen; // AVAX value of position when opened [want => AVAX]
         uint256 collId; // collateral ID
         uint256 collateral; // collateral amount
-        uint256[] debt; // borrowed token amount
         uint256[] timestamps; // open/close position stamps
     }
 
@@ -400,6 +399,8 @@ contract AHv2Farmer is BaseStrategy {
 
     /*
      * @notice Open a new AHv2 position with market neutral leverage
+     * @param _new is it a new position
+     * @param _positionId id of position if adding
      * @param amount amount of want to provide to prosition
      */
     function _openPosition(
@@ -445,7 +446,6 @@ contract AHv2Farmer is BaseStrategy {
             pos.wantOpen = _amounts;
             pos.collId = collId;
             pos.collateral = collateralSize;
-            pos.debt = debts;
             emit LogNewPositionOpened(
                 _positionId,
                 _amounts,
@@ -464,7 +464,6 @@ contract AHv2Farmer is BaseStrategy {
             }
             pos.wantOpen = _openPrice;
             pos.collateral = collateralSize;
-            pos.debt = debts;
             emit LogPositionAdjusted(
                 _positionId,
                 _amounts,
@@ -486,6 +485,7 @@ contract AHv2Farmer is BaseStrategy {
     /*
      * @notice Close and active AHv2 position
      * @param _positionId ID of position to close
+     * @param _amount amount of want to remove
      * @param _force Force close position, set minAmount to 0/0
      */
     function _closePosition(
@@ -515,7 +515,9 @@ contract AHv2Farmer is BaseStrategy {
         } else {
             PositionData storage pd = positions[_positionId];
             collateral = pd.collateral;
-            uint256[] memory debts = pd.debt;
+            (, uint256[] memory debts) = IHomora(homoraBank).getPositionDebts(
+                _positionId
+            );
             wantBal = want.balanceOf(address(this));
             amounts = new uint256[](2);
             if (!_force) {
@@ -561,7 +563,6 @@ contract AHv2Farmer is BaseStrategy {
 
     /*
      * @notice sell the contracts AVAX for want if there enough to justify the sell
-     * @param _useMinThreshold Use min threshold when selling, or sell everything
      */
     function _sellAVAX() internal {
         uint256 balance = address(this).balance;
@@ -584,7 +585,6 @@ contract AHv2Farmer is BaseStrategy {
 
     /*
      * @notice sell the contracts yield tokens for want if there enough to justify the sell - can remove this method if uni swap spell
-     * @param _useMinThreshold Use min threshold when selling, or sell everything
      */
     function _sellYieldToken() internal {
         require(_ammCheck(18, yieldToken), "sellYieldToken: !ammCheck");
@@ -838,10 +838,17 @@ contract AHv2Farmer is BaseStrategy {
                 // Balance - Total Debt is profit
                 if (balance > debt) {
                     _profit = balance - debt;
-                    _debtPayment = _debtPayment >_profit ? _debtPayment - _profit : _profit - _debtPayment;
+                    if (balance < _profit) {     
+                        _profit = balance;
+                    } else if (balance > _profit + _debtOutstanding){
+                        _debtPayment = _debtOutstanding;
+                    } else {
+                        _debtPayment = balance - _profit;
+                    }
                 } else {
                     _loss = debt - balance;
                 }
+
             }
         }
     }
@@ -913,7 +920,10 @@ contract AHv2Farmer is BaseStrategy {
         returns (uint256)
     {
         PositionData storage pd = positions[_positionId];
-        (, uint256 estWant) = _calcAvailable(pd.collateral, pd.debt);
+        (, uint256[] memory debts) = IHomora(homoraBank).getPositionDebts(
+            _positionId
+        );
+        (, uint256 estWant) = _calcAvailable(pd.collateral, debts);
         return estWant;
     }
 
