@@ -45,7 +45,7 @@ let daiAdaptor,
     investor2,
     bouncer;
 
-contract('Alpha homora test', function (accounts) {
+contract('Alpha homora test dai/avax joe pool', function (accounts) {
   admin = accounts[0]
   governance = accounts[1]
   bouncer = accounts[2]
@@ -146,7 +146,8 @@ contract('Alpha homora test', function (accounts) {
     await daiAdaptor.setUserAllowance(investor2, allowance, {from: bouncer});
 
     await primaryStrategy.setBorrowLimit(borrowLimit, {from: governance});
-    await primaryStrategy.setAmmThreshold(2000, {from: governance});
+    await primaryStrategy.setAmmThreshold(dai.address, 2000, {from: governance});
+    await primaryStrategy.setAmmThreshold(sushiToken, 2000, {from: governance});
 
     for (let i = 0; i < 10; i++) {
       await network.provider.send("evm_mine");
@@ -554,8 +555,8 @@ contract('Alpha homora test', function (accounts) {
         await avax.approve(router, constants.MAX_UINT256, {from: investor1});
     })
 
-    // Should be able to see how much sushi we are expecting
-    it('Should correctly estimated sushi assets', async () => {
+    // No joe rewards for dai
+    it.skip('Should correctly estimated sushi assets', async () => {
         const sid = await snapshotChain();
         await setBalance('dai', daiAdaptor.address, '100000');
         await daiAdaptor.strategyHarvest(0, {from: governance});
@@ -631,12 +632,11 @@ contract('Alpha homora test', function (accounts) {
         for (let i = 0; i < 10; i++) {
           await network.provider.send("evm_mine");
         }
-        // expected total assets without sushi rewards...
-        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(expected);
+        // no sushi rewards for dai pool
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.eq(expected);
         const expectedNoSushi = await primaryStrategy.estimatedTotalAssets();
         await masterChef.methods.updatePool(poolID).send({from: governance});
-        // ..should be lower than when we updated the rewards
-        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(expectedNoSushi);
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.eq(expectedNoSushi);
     })
 
     // Simulate changes in expected return
@@ -736,7 +736,7 @@ contract('Alpha homora test', function (accounts) {
         return expect(primaryStrategy.name()).to.eventually.equal('AHv2 strategy');
     })
 
-    it.skip('Should revert if a an AMM check fails', async () => {
+    it('Should revert if a an AMM check fails', async () => {
         const amount = '10000';
         const amount_norm_dai = toBN(amount).mul(toBN(1E18));
         const amount_norm_weth = toBN(amount).mul(toBN(1E18));
@@ -748,7 +748,7 @@ contract('Alpha homora test', function (accounts) {
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
         const position = primaryStrategy.activePosition()
         // force close the position
-        await primaryStrategy.setAmmThreshold(0, {from: governance});
+        await primaryStrategy.setAmmThreshold(dai.address, 0, {from: governance});
         return expect(primaryStrategy.forceClose(position, {from: governance})).to.eventually.be.rejected;
     })
   })

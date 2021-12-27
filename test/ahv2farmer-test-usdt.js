@@ -45,7 +45,7 @@ let usdtAdaptor,
     investor2,
     bouncer;
 
-contract('Alpha homora test', function (accounts) {
+contract('Alpha homora test usdt/avax joe pool', function (accounts) {
   admin = accounts[0]
   governance = accounts[1]
   bouncer = accounts[2]
@@ -146,7 +146,8 @@ contract('Alpha homora test', function (accounts) {
     await usdtAdaptor.setUserAllowance(investor2, allowance, {from: bouncer});
 
     await primaryStrategy.setBorrowLimit(borrowLimit, {from: governance});
-    await primaryStrategy.setAmmThreshold(2000, {from: governance});
+    await primaryStrategy.setAmmThreshold(usdt.address, 2000, {from: governance});
+    await primaryStrategy.setAmmThreshold(sushiToken, 2000, {from: governance});
 
     for (let i = 0; i < 10; i++) {
       await network.provider.send("evm_mine");
@@ -736,7 +737,7 @@ contract('Alpha homora test', function (accounts) {
         return expect(primaryStrategy.name()).to.eventually.equal('AHv2 strategy');
     })
 
-    it.skip('Should revert if a an AMM check fails', async () => {
+    it('Should revert if a an AMM check fails', async () => {
         const amount = '10000';
         const amount_norm_usdt = toBN(amount).mul(toBN(1E6));
         const amount_norm_weth = toBN(amount).mul(toBN(1E18));
@@ -748,7 +749,7 @@ contract('Alpha homora test', function (accounts) {
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
         const position = primaryStrategy.activePosition()
         // force close the position
-        await primaryStrategy.setAmmThreshold(0, {from: governance});
+        await primaryStrategy.setAmmThreshold(usdt.address, 0, {from: governance});
         return expect(primaryStrategy.forceClose(position, {from: governance})).to.eventually.be.rejected;
     })
   })

@@ -51,7 +51,7 @@ else {
 module.exports = {
   networks: {
     hardhat: {
-      gasPrice: 225000000000,
+      // initialBaseFeePerGas: 325000000000,
       chainId: 43112, //!forkingData ? 43112 : undefined, //Only specify a chainId if we are not forking
       forking: forkingData
     },
@@ -60,7 +60,7 @@ module.exports = {
       gas: 12000000,
       blockGasLimit: 12000000,
       // url: 'http://localhost:9650/ext/bc/C/rpc',
-      // gasPrice: 225000000000,
+      initialBaseFeePerGas: 325000000000,
       // chainId: 43112,
     },
     fuji: {
@@ -102,7 +102,7 @@ module.exports = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 100,
+            runs: 200,
           },
         }
       },
