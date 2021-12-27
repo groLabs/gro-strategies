@@ -51,7 +51,7 @@ else {
 module.exports = {
   networks: {
     hardhat: {
-      // initialBaseFeePerGas: 325000000000,
+      initialBaseFeePerGas: 325000000000,
       chainId: 43112, //!forkingData ? 43112 : undefined, //Only specify a chainId if we are not forking
       forking: forkingData
     },

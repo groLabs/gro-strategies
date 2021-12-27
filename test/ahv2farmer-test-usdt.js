@@ -133,7 +133,7 @@ contract('Alpha homora test usdt/avax joe pool', function (accounts) {
     )
 
     // add strategy to whitelist in homorabank and gov to whitelist in adapter so they can call harvest
-    await web3.eth.sendTransaction({to: AHGov, from: accounts[0], value: toWei('1', 'ether')})
+    await web3.eth.sendTransaction({to: AHGov, from: accounts[0], value: toWei('10', 'ether')})
     await homoraBank.methods.setWhitelistUsers([primaryStrategy.address], [true]).send({from: AHGov})
     await homoraBank.methods.setCreditLimits([[primaryStrategy.address, avax.address, toBN(1E18).mul(toBN(1E18)).toString()]]).send({from: AHGov})
     await usdtAdaptor.addToWhitelist(governance, {from: governance});
