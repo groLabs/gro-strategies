@@ -1,0 +1,40 @@
+# use Ganache's forked mainnet mode as the default network
+# NOTE: You don't *have* to do this, but it is often helpful for testing
+networks:
+  default: development
+  development:
+      explorer:  https://api.snowtrace.io/api
+      cmd: ganache-cli
+      cmd_settings:
+          host: http://127.0.0.1
+          timeout: 120
+          port: 8545
+          accounts: 10
+          evm_version: istanbul
+          mnemonic: brownie
+          fork: avax-main
+          unlock:
+              - 0xc05195e2EE3e4Bb49fA989EAA39B88A5001d52BD #ahgov
+              - 0x2D6B7235DB3659C1751f342F6C80A49727bb1a1D #tbank 
+              - 0x20243f4081b0f777166f656871b61c2792fb4124 #dbank
+              - 0x1af3088078b5b887179925b8c5eb7b381697fec6 #cbank
+              - 0xc0ffEE4a95F15ff9973A17E563a8A8701D719890 #coffee
+              - 0xBA5EDF9dAd66D9D81341eEf8131160c439dbA91B #based
+
+# automatically fetch contract sources from Etherscan
+autofetch_sources: True
+
+# require OpenZepplin Contracts
+dependencies:
+  - OpenZeppelin/openzeppelin-contracts@4.3.1
+
+# path remapping to support imports from GitHub/NPM
+compiler:
+  solc:
+    version: 0.8.4
+    remappings:
+      - "@openzeppelin=OpenZeppelin/openzeppelin-contracts@4.3.1"
+
+reports:
+  exclude_contracts:
+    - SafeMath

@@ -15,7 +15,7 @@ struct StrategyParams {
     uint256 totalLoss;
 }
 
-interface VaultAPI {
+interface IVault {
     function decimals() external view returns (uint256);
 
     function token() external view returns (address);
@@ -40,13 +40,6 @@ interface VaultAPI {
     function debtOutstanding() external view returns (uint256);
 
     function strategyDebt() external view returns (uint256);
-
-    /**
-     * View how much the Vault expect this Strategy to return at the current
-     * block, based on its present performance (since its last report). Can be
-     * used to determine expectedReturn in your Strategy.
-     */
-    function expectedReturn() external view returns (uint256);
 
     /**
      * This is the main contact point where the Strategy interacts with the
@@ -76,40 +69,6 @@ interface VaultAPI {
 }
 
 /**
- * This interface is here for the keeper bot to use.
- */
-interface StrategyAPI {
-    function name() external view returns (string memory);
-
-    function vault() external view returns (address);
-
-    function want() external view returns (address);
-
-    function keeper() external view returns (address);
-
-    function isActive() external view returns (bool);
-
-    function estimatedTotalAssets() external view returns (uint256);
-
-    function expectedReturn() external view returns (uint256);
-
-    function tendTrigger(uint256 _callCost) external view returns (bool);
-
-    function tend() external;
-
-    function harvestTrigger(uint256 _callCost) external view returns (bool);
-
-    function harvest() external;
-
-    event Harvested(
-        uint256 profit,
-        uint256 loss,
-        uint256 debtPayment,
-        uint256 debtOutstanding
-    );
-}
-
-/**
  * @title Yearn Base Strategy
  * @author yearn.finance
  * @notice
@@ -128,26 +87,26 @@ interface StrategyAPI {
 abstract contract BaseStrategy {
     using SafeERC20 for IERC20;
 
-    VaultAPI public vault;
+    IVault public vault;
     address public rewards;
     address public keeper;
 
     IERC20 public want;
 
     // So indexers can keep track of this
-    event Harvested(
+    event LogHarvested(
         uint256 profit,
         uint256 loss,
         uint256 debtPayment,
         uint256 debtOutstanding
     );
-    event UpdatedKeeper(address newKeeper);
-    event UpdatedRewards(address rewards);
-    event UpdatedMinReportDelay(uint256 delay);
-    event UpdatedMaxReportDelay(uint256 delay);
-    event UpdatedProfitFactor(uint256 profitFactor);
-    event UpdatedDebtThreshold(uint256 debtThreshold);
-    event EmergencyExitEnabled();
+    event LogUpdatedKeeper(address newKeeper);
+    event LogUpdatedRewards(address rewards);
+    event LogUpdatedMinReportDelay(uint256 delay);
+    event LogUpdatedMaxReportDelay(uint256 delay);
+    event LogUpdatedProfitFactor(uint256 profitFactor);
+    event LogUpdatedDebtThreshold(uint256 debtThreshold);
+    event LogEmergencyExitEnabled();
 
     // The minimum number of seconds between harvest calls. See
     // `setMinReportDelay()` for more details.
@@ -155,11 +114,11 @@ abstract contract BaseStrategy {
 
     // The maximum number of seconds between harvest calls. See
     // `setMaxReportDelay()` for more details.
-    uint256 public maxReportDelay;
+    uint256 public maxReportDelay = 21600;
 
     // The minimum multiple that `_callCost` must be above the credit/profit to
     // be "justifiable". See `setProfitFactor()` for more details.
-    uint256 public profitFactor;
+    uint256 public profitFactor = 100;
 
     // Use this to adjust the threshold at which running a debt causes a
     // harvest trigger. See `setDebtThreshold()` for more details.
@@ -180,17 +139,9 @@ abstract contract BaseStrategy {
     }
 
     constructor(address _vault) {
-        vault = VaultAPI(_vault);
-        want = IERC20(VaultAPI(_vault).token());
+        vault = IVault(_vault);
+        want = IERC20(IVault(_vault).token());
         want.safeApprove(_vault, type(uint256).max); // Give Vault unlimited access (might save gas)
-        rewards = msg.sender;
-        keeper = msg.sender;
-
-        // initialize variables
-        minReportDelay = 0;
-        maxReportDelay = 86400;
-        profitFactor = 100;
-        debtThreshold = 0;
     }
 
     function name() external view virtual returns (string memory);
@@ -198,7 +149,7 @@ abstract contract BaseStrategy {
     function setKeeper(address _keeper) external onlyOwner {
         require(_keeper != address(0), "setKeeper: _keeper == 0x");
         keeper = _keeper;
-        emit UpdatedKeeper(_keeper);
+        emit LogUpdatedKeeper(_keeper);
     }
 
     /**
@@ -218,7 +169,7 @@ abstract contract BaseStrategy {
             "setMinReportDelay: _delay > maxReportDelay"
         );
         minReportDelay = _delay;
-        emit UpdatedMinReportDelay(_delay);
+        emit LogUpdatedMinReportDelay(_delay);
     }
 
     /**
@@ -238,7 +189,7 @@ abstract contract BaseStrategy {
             "setMaxReportDelay: _delay < minReportDelay"
         );
         maxReportDelay = _delay;
-        emit UpdatedMaxReportDelay(_delay);
+        emit LogUpdatedMaxReportDelay(_delay);
     }
 
     /**
@@ -253,7 +204,7 @@ abstract contract BaseStrategy {
     function setProfitFactor(uint256 _profitFactor) external onlyAuthorized {
         require(_profitFactor <= 1000, "setProfitFactor: _profitFactor > 1000");
         profitFactor = _profitFactor;
-        emit UpdatedProfitFactor(_profitFactor);
+        emit LogUpdatedProfitFactor(_profitFactor);
     }
 
     /**
@@ -274,7 +225,7 @@ abstract contract BaseStrategy {
         onlyAuthorized
     {
         debtThreshold = _debtThreshold;
-        emit UpdatedDebtThreshold(_debtThreshold);
+        emit LogUpdatedDebtThreshold(_debtThreshold);
     }
 
     /**
@@ -404,7 +355,12 @@ abstract contract BaseStrategy {
      * @param _callCost The keeper's estimated cast cost to call `tend()`.
      * @return `true` if `tend()` should be called, `false` otherwise.
      */
-    function tendTrigger(uint256 _callCost) public view virtual returns (bool);
+    function tendTrigger(uint256 _callCost)
+        public
+        view
+        virtual
+        returns (bool)
+    {}
 
     /**
      * @notice
@@ -534,7 +490,7 @@ abstract contract BaseStrategy {
         // Check if free returns are left, and re-invest them
         _adjustPosition(debtOutstanding);
 
-        emit Harvested(profit, loss, debtPayment, debtOutstanding);
+        emit LogHarvested(profit, loss, debtPayment, debtOutstanding);
     }
 
     /**
@@ -591,7 +547,7 @@ abstract contract BaseStrategy {
         emergencyExit = true;
         vault.revokeStrategy();
 
-        emit EmergencyExitEnabled();
+        emit LogEmergencyExitEnabled();
     }
 
     /**
@@ -615,7 +571,8 @@ abstract contract BaseStrategy {
         internal
         view
         virtual
-        returns (address[] memory);
+        returns (address[] memory)
+    {}
 
     /**
      * @notice
@@ -646,14 +603,5 @@ abstract contract BaseStrategy {
             _owner(),
             IERC20(_token).balanceOf(address(this))
         );
-    }
-
-    function ammCheck(address _start, uint256 _minAmount)
-        external
-        view
-        virtual
-        returns (bool)
-    {
-        return true;
     }
 }

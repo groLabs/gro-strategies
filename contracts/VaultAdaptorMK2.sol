@@ -27,11 +27,6 @@ interface IStrategy {
     function harvestTrigger(uint256 callCost) external view returns (bool);
 
     function harvest() external;
-
-    function ammCheck(address _start, uint256 _minAmount)
-        external
-        view
-        returns (bool);
 }
 
 /// @notice VaultAdapterMk2 - Gro protocol stand alone vault for strategy testing
@@ -79,10 +74,19 @@ contract VaultAdaptorMK2 is
         uint256 totalLoss;
     }
 
+    // Allowance
+    bool public allowance = true; // turn allowance on/off
+    mapping(address => bool) public claimed;
+    uint256 public immutable BASE_ALLOWANCE; // user BASE allowance
+    mapping(address => uint256) public userAllowance; // user additional allowance
+
     mapping(address => StrategyParams) public strategies;
-    mapping(address => uint256) public userAllowance;
 
     address[MAXIMUM_STRATEGIES] public withdrawalQueue;
+
+    // Slow release of profit
+    uint256 public lockedProfit;
+    uint256 public releaseFactor;
 
     uint256 public debtRatio;
     uint256 public totalDebt;
@@ -135,9 +139,11 @@ contract VaultAdaptorMK2 is
     event LogMigrate(address parent, address child, uint256 amount);
     event LogNewBouncer(address bouncer);
     event LogNewRewards(address rewards);
+    event LogNewReleaseFactor(uint256 factor);
     event LogNewVaultFee(uint256 vaultFee);
     event LogNewStrategyHarvest(bool loss, uint256 change);
     event LogNewAllowance(address user, uint256 amount);
+    event LogAllowanceStatus(bool status);
     event LogDeposit(
         address indexed from,
         uint256 _amount,
@@ -152,16 +158,30 @@ contract VaultAdaptorMK2 is
         uint256 allowance
     );
 
-    constructor(address _token, address _bouncer)
+    constructor(
+        address _token,
+        uint256 _baseAllowance,
+        address _bouncer
+    )
         ERC20(
-            string(abi.encodePacked("Gro ", IERC20Detailed(_token).symbol(), " Lab")),
+            string(
+                abi.encodePacked(
+                    "Gro ",
+                    IERC20Detailed(_token).symbol(),
+                    " Lab"
+                )
+            ),
             string(abi.encodePacked("gro", IERC20Detailed(_token).symbol()))
         )
     {
         token = _token;
         activation = block.timestamp;
-        _decimals = IERC20Detailed(_token).decimals();
+        uint256 decimals = IERC20Detailed(_token).decimals();
+        _decimals = decimals;
+        BASE_ALLOWANCE = _baseAllowance * 10**decimals;
         bouncer = _bouncer;
+        // 6 hours release
+        releaseFactor = (DEFAULT_DECIMALS_FACTOR * 46) / 10**6;
     }
 
     /// @notice Vault share decimals
@@ -174,6 +194,13 @@ contract VaultAdaptorMK2 is
     function setBouncer(address _bouncer) external onlyOwner {
         bouncer = _bouncer;
         emit LogNewBouncer(_bouncer);
+    }
+
+    /// @notice Set Vault to use allowance
+    /// @param _status set allowance to on/off
+    function activateAllowance(bool _status) external onlyOwner {
+        allowance = _status;
+        emit LogAllowanceStatus(_status);
     }
 
     /// @notice Set contract that will recieve vault fees
@@ -206,8 +233,21 @@ contract VaultAdaptorMK2 is
             msg.sender == bouncer,
             "setUserAllowance: msg.sender != bouncer"
         );
-        userAllowance[_user] += _amount * (10**_decimals);
+        if (!claimed[_user]) {
+            userAllowance[_user] += _amount * (10**_decimals) + BASE_ALLOWANCE;
+            claimed[_user] = true;
+        } else {
+            userAllowance[_user] += _amount * (10**_decimals);
+        }
         emit LogNewAllowance(_user, _amount);
+    }
+
+    /// @notice Set how quickly profits are released
+    /// @param _factor how quickly profits are released
+    function setProfitRelease(uint256 _factor) external onlyOwner {
+        uint256 _releaseFactor = (DEFAULT_DECIMALS_FACTOR * _factor) / 10**6;
+        releaseFactor = _releaseFactor;
+        emit LogNewReleaseFactor(_releaseFactor);
     }
 
     /// @notice Calculate system total assets
@@ -239,18 +279,28 @@ contract VaultAdaptorMK2 is
             _totalAssets() + _amount <= depositLimit,
             "deposit: !depositLimit"
         );
-        require(
-            userAllowance[msg.sender] >= _amount,
-            "deposit: !userAllowance"
-        );
+        uint256 _allowance = 0;
+        if (allowance) {
+            _allowance = userAllowance[msg.sender];
+            if (!claimed[msg.sender]) {
+                require(_amount <= BASE_ALLOWANCE, "deposit: !userAllowance");
+                _allowance = BASE_ALLOWANCE - _amount;
+                claimed[msg.sender] = true;
+            } else {
+                require(
+                    userAllowance[msg.sender] >= _amount,
+                    "deposit: !userAllowance"
+                );
+                _allowance = userAllowance[msg.sender] - _amount;
+            }
+            userAllowance[msg.sender] = _allowance;
+        }
 
         uint256 shares = _issueSharesForAmount(msg.sender, _amount);
 
         IERC20 _token = IERC20(token);
         _token.safeTransferFrom(msg.sender, address(this), _amount);
 
-        uint256 _allowance = userAllowance[msg.sender] - _amount;
-        userAllowance[msg.sender] = _allowance;
         emit LogDeposit(msg.sender, _amount, shares, _allowance);
         return shares;
     }
@@ -262,10 +312,10 @@ contract VaultAdaptorMK2 is
         internal
         returns (uint256)
     {
-        uint256 shares = 0;
+        uint256 shares;
         uint256 _totalSupply = totalSupply();
         if (_totalSupply > 0) {
-            shares = (_amount * _totalSupply) / _totalAssets();
+            shares = (_amount * _totalSupply) / _freeFunds();
         } else {
             shares = _amount;
         }
@@ -291,26 +341,16 @@ contract VaultAdaptorMK2 is
 
     /// @notice Harvest underlying strategy
     /// @param _index Index of strategy
-    /// @param _tokens tokens to check
-    /// @param _minAmounts minAmount to expect to get out of AMM
     /// @dev Any Gains/Losses incurred by harvesting a streategy is accounted for in the vault adapter
     ///     and reported back to the Controller, which in turn updates current system total assets.
-    ///     AMM checks are used as external verifications to avoid sandwich attacks when interacting with
-    ///     with strategies (priceing and swapping).
-    function strategyHarvest(
-        uint256 _index,
-        address[] memory _tokens,
-        uint256[] memory _minAmounts
-    ) external nonReentrant onlyWhitelist {
+    function strategyHarvest(uint256 _index)
+        external
+        nonReentrant
+        onlyWhitelist
+    {
         require(_index < strategyLength(), "invalid index");
         IStrategy _strategy = IStrategy(withdrawalQueue[_index]);
         uint256 beforeAssets = _totalAssets();
-        for(uint256 i; i < _tokens.length; i++) {
-            require(
-                _strategy.ammCheck(_tokens[i], _minAmounts[i]),
-                "strategyHarvest: !ammCheck"
-            );
-        }
         _strategy.harvest();
         uint256 afterAssets = _totalAssets();
         bool loss;
@@ -323,6 +363,24 @@ contract VaultAdaptorMK2 is
             loss = false;
         }
         emit LogNewStrategyHarvest(loss, change);
+    }
+
+    /// @notice Calculate how much profit is currently locked
+    function _calculateLockedProfit() internal view returns (uint256) {
+        uint256 lockedFundsRatio = (block.timestamp - lastReport) *
+            releaseFactor;
+        if (lockedFundsRatio < DEFAULT_DECIMALS_FACTOR) {
+            uint256 _lockedProfit = lockedProfit;
+            return
+                _lockedProfit -
+                ((lockedFundsRatio * _lockedProfit) / DEFAULT_DECIMALS_FACTOR);
+        } else {
+            return 0;
+        }
+    }
+
+    function _freeFunds() internal view returns (uint256) {
+        return _totalAssets() - _calculateLockedProfit();
     }
 
     /// @notice Calculate system total assets including estimated profits
@@ -806,8 +864,11 @@ contract VaultAdaptorMK2 is
         _burn(msg.sender, shares);
         _token.safeTransfer(msg.sender, value);
         // Hopefully get a bit more allowance - thx for participating!
-        uint256 _allowance = userAllowance[msg.sender] + (value + totalLoss);
-        userAllowance[msg.sender] = _allowance;
+        uint256 _allowance = 0;
+        if (allowance) {
+            _allowance = userAllowance[msg.sender] + (value + totalLoss);
+            userAllowance[msg.sender] = _allowance;
+        }
 
         emit LogWithdrawal(msg.sender, value, shares, totalLoss, _allowance);
         return value;
@@ -818,17 +879,23 @@ contract VaultAdaptorMK2 is
     function _shareValue(uint256 _shares) internal view returns (uint256) {
         uint256 _totalSupply = totalSupply();
         if (_totalSupply == 0) return _shares;
-        return ((_shares * _totalAssets()) / _totalSupply);
+        return ((_shares * _freeFunds()) / _totalSupply);
     }
 
     /// @notice Value of tokens in shares
     /// @param _amount amount of tokens to convert to shares
     function _sharesForAmount(uint256 _amount) internal view returns (uint256) {
-        uint256 _assets = _totalAssets();
+        uint256 _assets = _freeFunds();
         if (_assets > 0) {
             return (_amount * totalSupply()) / _assets;
         }
         return 0;
+    }
+
+    function _calcFees(uint256 _gain) internal returns (uint256) {
+        uint256 fees = (_gain * vaultFee) / PERCENTAGE_DECIMAL_FACTOR;
+        if (fees > 0) _issueSharesForAmount(rewards, fees);
+        return _gain - fees;
     }
 
     /// @notice Report back any gains/losses from a (strategy) harvest, vault adapetr
@@ -843,7 +910,7 @@ contract VaultAdaptorMK2 is
         uint256 _debtPayment
     ) external returns (uint256) {
         StrategyParams storage _strategy = strategies[msg.sender];
-        require(_strategy.active, "report: !activated");
+        require(_strategy.activation > 0, "report: !activated");
         IERC20 _token = IERC20(token);
         require(
             _token.balanceOf(msg.sender) >= _gain + _debtPayment,
@@ -853,11 +920,6 @@ contract VaultAdaptorMK2 is
         if (_loss > 0) {
             _reportLoss(msg.sender, _loss);
         }
-        if (vaultFee > 0 && _gain > 0)
-            _issueSharesForAmount(
-                rewards,
-                (_gain * vaultFee) / PERCENTAGE_DECIMAL_FACTOR
-            );
 
         _strategy.totalGain = _strategy.totalGain + _gain;
 
@@ -887,6 +949,16 @@ contract VaultAdaptorMK2 is
                 address(this),
                 totalAvailable - credit
             );
+        }
+
+        // Profit is locked and gradually released per block
+        // NOTE: compute current locked profit and replace with sum of current and new
+        uint256 lockedProfitBeforeLoss = _calculateLockedProfit() +
+            _calcFees(_gain);
+        if (lockedProfitBeforeLoss > _loss) {
+            lockedProfit = lockedProfitBeforeLoss - _loss;
+        } else {
+            lockedProfit = 0;
         }
 
         lastReport = block.timestamp;
