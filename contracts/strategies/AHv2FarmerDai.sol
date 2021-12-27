@@ -4,6 +4,7 @@ pragma solidity 0.8.4;
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../BaseStrategy.sol";
 import "../common/Constants.sol";
+import "hardhat/console.sol";
 
 // Uniswap router interface
 interface IUni {
@@ -40,6 +41,21 @@ interface IUniPool {
         );
 
     function totalSupply() external view returns (uint256);
+}
+
+interface ICurve {
+    function exchange_underlying(
+        int128 i,
+        int128 j,
+        uint256 dx,
+        uint256 min_dy
+    ) external returns (uint256);
+
+    function get_dy_underlying(
+        int128 i,
+        int128 j,
+        uint256 dx
+    ) external view returns (uint256);
 }
 
 interface IHomoraOracle {
@@ -135,7 +151,7 @@ interface IMasterChef {
  *  If the collateral factor move away from the ideal target, the strategy won't take on more debt from alpha
  *  homora when adding assets to the position.
  */
-contract AHv2Farmer is BaseStrategy {
+contract AHv2FarmerDai is BaseStrategy {
     using SafeERC20 for IERC20;
 
     // Base constants
@@ -154,23 +170,24 @@ contract AHv2Farmer is BaseStrategy {
     // UniV2 or Sushi swap style router
     IUni public immutable uniSwapRouter;
     // comment out if uniSwap spell is used
-    address public constant yieldToken =
-        address(0x6e84a6216eA6dACC71eE8E6b0a5B7322EEbC0fDd);
     address public constant homoraBank =
         address(0x376d16C7dE138B01455a51dA79AD65806E9cd694);
     address public constant masterChef =
         address(0xd6a4F121CA35509aF06A0Be99093d08462f53052);
     IWMasterChef public constant wMasterChef =
         IWMasterChef(0xB41DE9c1f50697cC3Fd63F24EdE2B40f6269CBcb);
+    ICurve public constant curvePool =
+        ICurve(0x7f90122BF0700F9E7e1F688fe926940E8839F353);
     address public immutable spell;
 
     // strategies current position
     uint256 public activePosition;
     // How much change we accept in AVAX price before closing or adjusting the position
     uint256 public ilThreshold = 400; // 4%
+    uint256 public slippage = 10; // 0.1% curve slippage
 
     // In case no direct path exists for the swap, use this token as an inermidiary step
-    address immutable indirectPath;
+    address public immutable indirectPath;
     // liq. pool token order, used to determine if calculations should be reversed or not
     // first token in liquidity pool
     address public immutable tokenA;
@@ -206,7 +223,6 @@ contract AHv2Farmer is BaseStrategy {
     );
 
     event LogAVAXSold(uint256[] AVAXSold);
-    event LogYieldTokenSold(uint256[] yieldTokenSold);
 
     event NewFarmer(
         address vault,
@@ -218,6 +234,7 @@ contract AHv2Farmer is BaseStrategy {
     event LogNewReserversSet(uint256 reserve);
 
     event LogNewIlthresholdSet(uint256 ilThreshold);
+    event LogNewSlippage(uint256 slippage);
     event LogNewMinWantSet(uint256 minWawnt);
     event LogNewBorrowLimit(uint256 newLimit);
     event LogNewAmmThreshold(address token, uint256 newThreshold);
@@ -282,8 +299,7 @@ contract AHv2Farmer is BaseStrategy {
         debtThreshold = 1_000_000 * (10**_decimals);
         // approve the homora bank to use our want
         want.safeApprove(homoraBank, type(uint256).max);
-        // approve the router to use our yieldToken
-        IERC20(yieldToken).safeApprove(_router, type(uint256).max);
+        IERC20(_indirectPath).safeApprove(address(curvePool), type(uint256).max);
         spell = _spell;
         uniSwapRouter = IUni(_router);
         pool = IUniPool(_pool);
@@ -318,6 +334,16 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     /*
+     * @notice set curve slippage
+     * @param _slippage new curve slippage
+     */
+    function setSlippage(uint256 _slippage) external onlyOwner {
+        require(_slippage < 1000, 'setSlippage: slippage > 10%');
+        slippage = _slippage;
+        emit LogNewSlippage(_slippage);
+    }
+
+    /*
      * @notice set threshold for amm check
      * @param _threshold new threshold
      */
@@ -347,54 +373,6 @@ contract AHv2Farmer is BaseStrategy {
         require(_newThreshold <= 10000, "setIlThreshold: !newThreshold");
         ilThreshold = _newThreshold;
         emit LogNewIlthresholdSet(_newThreshold);
-    }
-
-    /*
-     * @notice Estimate amount of yield tokens that will be claimed if position is closed
-     * @param _positionId ID of a AHv2 position
-     */
-    function pendingYieldToken(uint256 _positionId)
-        public
-        view
-        returns (uint256)
-    {
-        if (_positionId == 0) return 0;
-        // get balance of collateral
-        uint256 amount = positions[_positionId].collateral;
-        (uint256 pid, uint256 stYieldTokenPerShare) = wMasterChef.decodeId(
-            positions[_positionId].collId
-        );
-        (, , , uint256 enYieldTokenPerShare) = IMasterChef(masterChef).poolInfo(
-            pid
-        );
-        uint256 stYieldToken = (stYieldTokenPerShare * amount - 1) / 1e12;
-        uint256 enYieldToken = (enYieldTokenPerShare * amount) / 1e12;
-        if (enYieldToken > stYieldToken) {
-            return enYieldToken - stYieldToken;
-        }
-        return 0;
-    }
-
-    /*
-     * @notice Estimate price of yield tokens
-     * @param _positionId ID active position
-     * @param _balance contracts current yield token balance
-     */
-    function _valueOfYieldToken(uint256 _positionId, uint256 _balance)
-        internal
-        view
-        returns (uint256)
-    {
-        uint256 estimatedYieldToken = pendingYieldToken(_positionId) + _balance;
-        if (estimatedYieldToken > 0) {
-            uint256[] memory yieldTokenWantValue = _uniPrice(
-                estimatedYieldToken,
-                yieldToken
-            );
-            return yieldTokenWantValue[yieldTokenWantValue.length - 1];
-        } else {
-            return 0;
-        }
     }
 
     /*
@@ -579,25 +557,13 @@ contract AHv2Farmer is BaseStrategy {
         // AMM check or ues the manual see function between harvest.
         uint256[] memory amounts = uniSwapRouter.swapExactAVAXForTokens{
             value: balance
-        }(0, _getPath(wavax), address(this), block.timestamp);
-        emit LogAVAXSold(amounts);
-    }
+        }(0, _getPath(indirectPath), address(this), block.timestamp);
 
-    /*
-     * @notice sell the contracts yield tokens for want if there enough to justify the sell - can remove this method if uni swap spell
-     */
-    function _sellYieldToken() internal {
-        require(_ammCheck(18, yieldToken), "sellYieldToken: !ammCheck");
-        uint256 balance = IERC20(yieldToken).balanceOf(address(this));
-        if (balance == 0) return;
-        uint256[] memory amounts = uniSwapRouter.swapExactTokensForTokens(
-            balance,
-            0,
-            _getPath(yieldToken),
-            address(this),
-            block.timestamp
-        );
-        emit LogYieldTokenSold(amounts);
+        balance = IERC20(indirectPath).balanceOf(address(this));
+        uint256 minAmount = balance * 10 ** (18 - 6) * (PERCENTAGE_DECIMAL_FACTOR - slippage) / PERCENTAGE_DECIMAL_FACTOR;
+        balance = curvePool.exchange_underlying(1, 0, balance, minAmount);
+
+        emit LogAVAXSold(amounts);
     }
 
     /*
@@ -694,26 +660,17 @@ contract AHv2Farmer is BaseStrategy {
      *      path (avax) will be taken before going to want
      */
     function _getPath(address _start) private view returns (address[] memory) {
-        address[] memory path;
+        address[] memory path = new address[](2);
         if (_start == wavax) {
-            path = new address[](2);
             path[0] = wavax;
             path[1] = address(want);
         } else if (_start == address(want)) {
-            path = new address[](2);
             path[0] = address(want);
             path[1] = wavax;
         } else {
-            if (indirectPath == address(0)) {
-                path = new address[](2);
-                path[0] = yieldToken;
-                path[1] = address(want);
-            } else {
-                path = new address[](3);
-                path[0] = yieldToken;
-                path[1] = indirectPath;
-                path[2] = address(want);
-            }
+            path[0] = wavax;
+            path[1] = _start;
+
         }
         return path;
     }
@@ -757,13 +714,14 @@ contract AHv2Farmer is BaseStrategy {
         returns (uint256, uint256)
     {
         // get the value of the current position supplied by this strategy (total - borrowed)
-        uint256 yieldTokenBalance = IERC20(yieldToken).balanceOf(address(this));
-        uint256[] memory _valueOfAVAX = _uniPrice(address(this).balance, wavax);
+        uint256[] memory _valueOfAVAX = _uniPrice(address(this).balance, indirectPath);
+        if (_valueOfAVAX[1] > 0) {
+            _valueOfAVAX[1] = curvePool.get_dy_underlying(1, 0, _valueOfAVAX[1]);
+        }
         uint256 _reserve = want.balanceOf(address(this));
 
         if (_positionId == 0) {
             return (
-                _valueOfYieldToken(_positionId, yieldTokenBalance) +
                     _valueOfAVAX[1] +
                     _reserve,
                 _reserve
@@ -772,7 +730,6 @@ contract AHv2Farmer is BaseStrategy {
         return (
             _reserve +
                 _calcEstimatedWant(_positionId) +
-                _valueOfYieldToken(_positionId, yieldTokenBalance) +
                 _valueOfAVAX[1],
             _reserve
         );
@@ -814,7 +771,6 @@ contract AHv2Farmer is BaseStrategy {
         uint256 balance;
         // only try to realize profits if there is no active position
         if (_positionId == 0 || _debtOutstanding > 0) {
-            _sellYieldToken();
             _sellAVAX();
             balance = want.balanceOf(address(this));
             if (balance < _debtOutstanding) {
@@ -903,7 +859,7 @@ contract AHv2Farmer is BaseStrategy {
 
         if (AVAXPosition > 0) {
             posWant =
-                _uniPrice(uint256(AVAXPosition), wavax)[1] +
+                curvePool.get_dy_underlying(1, 0, _uniPrice(uint256(AVAXPosition), indirectPath)[1]) +
                 lpPosition[1];
             lpPosition[0] = uint256(AVAXPosition);
         } else {
@@ -1014,7 +970,6 @@ contract AHv2Farmer is BaseStrategy {
                 if ((remainder * PERCENTAGE_DECIMAL_FACTOR) / assets >= 8000) {
                     _closePosition(_positionId, 0, false);
                     _sellAVAX();
-                    _sellYieldToken();
                 } else {
                     _closePosition(_positionId, remainder, false);
                 }
@@ -1112,9 +1067,12 @@ contract AHv2Farmer is BaseStrategy {
         );
         // Normalize homora price and add the default decimal factor to get it to BP
         uint256 diff = ((ethPx * 10**(_decimals + 4)) / 2**112) / amounts[1];
+        console.log('ammCheck');
+        console.log('AH %s TJ %s', ((ethPx * 10**(_decimals + 4)) / 2**112), amounts[1]);
         diff = (diff > PERCENTAGE_DECIMAL_FACTOR)
             ? diff - PERCENTAGE_DECIMAL_FACTOR
             : PERCENTAGE_DECIMAL_FACTOR - diff;
+        console.log('diff %s threshold %s', diff, ammThreshold[_start]);
         // check the difference against the ammThreshold
         if (diff < ammThreshold[_start]) return true;
     }
@@ -1252,3 +1210,4 @@ contract AHv2Farmer is BaseStrategy {
         return false;
     }
 }
+
