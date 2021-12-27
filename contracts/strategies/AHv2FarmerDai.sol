@@ -4,6 +4,7 @@ pragma solidity 0.8.4;
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../BaseStrategy.sol";
 import "../common/Constants.sol";
+import "hardhat/console.sol";
 
 // Uniswap router interface
 interface IUni {
@@ -1066,9 +1067,12 @@ contract AHv2FarmerDai is BaseStrategy {
         );
         // Normalize homora price and add the default decimal factor to get it to BP
         uint256 diff = ((ethPx * 10**(_decimals + 4)) / 2**112) / amounts[1];
+        console.log('ammCheck');
+        console.log('AH %s TJ %s', ((ethPx * 10**(_decimals + 4)) / 2**112), amounts[1]);
         diff = (diff > PERCENTAGE_DECIMAL_FACTOR)
             ? diff - PERCENTAGE_DECIMAL_FACTOR
             : PERCENTAGE_DECIMAL_FACTOR - diff;
+        console.log('diff %s threshold %s', diff, ammThreshold[_start]);
         // check the difference against the ammThreshold
         if (diff < ammThreshold[_start]) return true;
     }

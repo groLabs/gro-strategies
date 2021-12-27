@@ -146,8 +146,8 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
     await daiAdaptor.setUserAllowance(investor2, allowance, {from: bouncer});
 
     await primaryStrategy.setBorrowLimit(borrowLimit, {from: governance});
-    await primaryStrategy.setAmmThreshold(dai.address, 2000, {from: governance});
-    await primaryStrategy.setAmmThreshold(sushiToken, 2000, {from: governance});
+    await primaryStrategy.setAmmThreshold(dai.address, 3000, {from: governance});
+    await primaryStrategy.setAmmThreshold(sushiToken, 3000, {from: governance});
 
     for (let i = 0; i < 10; i++) {
       await network.provider.send("evm_mine");
