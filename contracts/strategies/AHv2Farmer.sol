@@ -179,6 +179,9 @@ contract AHv2Farmer is BaseStrategy {
 
     // Min amount of tokens to open/adjust positions or sell
     uint256 public minWant;
+    // Amount of tokens to sell as a % of pool liq. depth
+    uint256 public sellThreshold = 10; // 0.1%
+    // Thresholds for the different tokens sold
     mapping(address => uint256) public ammThreshold;
 
     // Limits the size of a position based on how much is available to borrow
@@ -219,6 +222,7 @@ contract AHv2Farmer is BaseStrategy {
 
     event LogNewIlthresholdSet(uint256 ilThreshold);
     event LogNewMinWantSet(uint256 minWawnt);
+    event LogNewSellThreshold(uint256 threshold);
     event LogNewBorrowLimit(uint256 newLimit);
     event LogNewAmmThreshold(address token, uint256 newThreshold);
 
@@ -347,6 +351,16 @@ contract AHv2Farmer is BaseStrategy {
         require(_newThreshold <= 10000, "setIlThreshold: !newThreshold");
         ilThreshold = _newThreshold;
         emit LogNewIlthresholdSet(_newThreshold);
+    }
+
+    /*
+     * @notice set max amount of tokens to sell (currently only impacts wavax)
+     * @param _threshold threshold of pool depth in BP
+     */
+    function setSellThreshold(uint256 _threshold) external onlyOwner {
+        require(_threshold >= 1, 'setSellThreshold: _threshold to small');
+        sellThreshold = _threshold;
+        emit LogNewSellThreshold(_threshold);
     }
 
     /*
@@ -510,7 +524,7 @@ contract AHv2Farmer is BaseStrategy {
             minAmounts = new uint256[](2);
             minAmounts[1] =
                 (amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100)) /
-                ERCENTAGE_DECIMAL_FACTOR;77230d17318075983913bC2145DB16C7366156
+                PERCENTAGE_DECIMAL_FACTOR;
             minAmounts[0] = 0;
         } else {
             PositionData storage pd = positions[_positionId];
@@ -563,8 +577,9 @@ contract AHv2Farmer is BaseStrategy {
 
     /*
      * @notice sell the contracts AVAX for want if there enough to justify the sell
+     * @param _all sell all available avax
      */
-    function _sellAVAX() internal {
+    function _sellAVAX(bool _all) internal {
         uint256 balance = address(this).balance;
 
         // check if we have enough AVAX to sell
@@ -572,6 +587,10 @@ contract AHv2Farmer is BaseStrategy {
             return;
         }
 
+        (, uint112 resB) = _getPoolReserves();
+        if (balance * PERCENTAGE_DECIMAL_FACTOR / resB > sellThreshold) {
+            balance = resB * sellThreshold / PERCENTAGE_DECIMAL_FACTOR;
+        }
         // Use a call to the uniswap router contract to swap exact AVAX for want
         // note, minwant could be set to 0 here as it doesnt matter, this call
         // cannot prevent any frontrunning and the transaction should be executed
@@ -813,9 +832,9 @@ contract AHv2Farmer is BaseStrategy {
         uint256 _positionId = activePosition;
         uint256 balance;
         // only try to realize profits if there is no active position
+        _sellAVAX(false);
         if (_positionId == 0 || _debtOutstanding > 0) {
             _sellYieldToken();
-            _sellAVAX();
             balance = want.balanceOf(address(this));
             if (balance < _debtOutstanding) {
                 // withdraw to cover the debt
@@ -1013,7 +1032,7 @@ contract AHv2Farmer is BaseStrategy {
                 // if we want to remove 80% or more of the position, just close it
                 if ((remainder * PERCENTAGE_DECIMAL_FACTOR) / assets >= 8000) {
                     _closePosition(_positionId, 0, false);
-                    _sellAVAX();
+                    _sellAVAX(false);
                     _sellYieldToken();
                 } else {
                     _closePosition(_positionId, remainder, false);
@@ -1085,6 +1104,7 @@ contract AHv2Farmer is BaseStrategy {
      * @param _newStrategy address of migration target (not used here)
      */
     function _prepareMigration(address _newStrategy) internal override {
+        _sellAVAX(true);
         require(activePosition == 0, "prepareMigration: active position");
     }
 
@@ -1228,6 +1248,7 @@ contract AHv2Farmer is BaseStrategy {
         if (params.activation == 0) return false;
 
         // external view function, so we dont bother setting activePosition to a local variable
+        if (_ammCheck(decimals, address(want))) return false;
         (bool check, uint256 remainingLimit) = _checkPositionHealth(
             activePosition
         );

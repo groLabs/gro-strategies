@@ -195,6 +195,8 @@ contract AHv2FarmerDai is BaseStrategy {
 
     // Min amount of tokens to open/adjust positions or sell
     uint256 public minWant;
+    // Amount of tokens to sell as a % of pool liq. depth
+    uint256 public sellThreshold = 100; // 1%
     mapping(address => uint256) public ammThreshold;
 
     // Limits the size of a position based on how much is available to borrow
@@ -233,6 +235,7 @@ contract AHv2FarmerDai is BaseStrategy {
     event LogNewReserversSet(uint256 reserve);
 
     event LogNewIlthresholdSet(uint256 ilThreshold);
+    event LogNewSellThreshold(uint256 threshold);
     event LogNewSlippage(uint256 slippage);
     event LogNewMinWantSet(uint256 minWawnt);
     event LogNewBorrowLimit(uint256 newLimit);
@@ -372,6 +375,16 @@ contract AHv2FarmerDai is BaseStrategy {
         require(_newThreshold <= 10000, "setIlThreshold: !newThreshold");
         ilThreshold = _newThreshold;
         emit LogNewIlthresholdSet(_newThreshold);
+    }
+
+    /*
+     * @notice set max amount of tokens to sell (currently only impacts wavax)
+     * @param _threshold threshold of pool depth in BP
+     */
+    function setSellThreshold(uint256 _threshold) external onlyOwner {
+        require(_threshold >= 10, 'setSellThreshold: _threshold to small');
+        sellThreshold = _threshold;
+        emit LogNewSellThreshold(_threshold);
     }
 
     /*
@@ -540,8 +553,9 @@ contract AHv2FarmerDai is BaseStrategy {
 
     /*
      * @notice sell the contracts AVAX for want if there enough to justify the sell
+     * @param _all sell all available avax
      */
-    function _sellAVAX() internal {
+    function _sellAVAX(bool _all) internal {
         uint256 balance = address(this).balance;
 
         // check if we have enough AVAX to sell
@@ -549,6 +563,10 @@ contract AHv2FarmerDai is BaseStrategy {
             return;
         }
 
+        (, uint112 resB) = _getPoolReserves();
+        if (balance * PERCENTAGE_DECIMAL_FACTOR / resB > sellThreshold) {
+            balance = resB * sellThreshold / PERCENTAGE_DECIMAL_FACTOR;
+        }
         // Use a call to the uniswap router contract to swap exact AVAX for want
         // note, minwant could be set to 0 here as it doesnt matter, this call
         // cannot prevent any frontrunning and the transaction should be executed
@@ -556,12 +574,7 @@ contract AHv2FarmerDai is BaseStrategy {
         // AMM check or ues the manual see function between harvest.
         uint256[] memory amounts = uniSwapRouter.swapExactAVAXForTokens{
             value: balance
-        }(0, _getPath(indirectPath), address(this), block.timestamp);
-
-        balance = IERC20(indirectPath).balanceOf(address(this));
-        uint256 minAmount = balance * 10 ** (18 - 6) * (PERCENTAGE_DECIMAL_FACTOR - slippage) / PERCENTAGE_DECIMAL_FACTOR;
-        balance = curvePool.exchange_underlying(1, 0, balance, minAmount);
-
+        }(0, _getPath(wavax), address(this), block.timestamp);
         emit LogAVAXSold(amounts);
     }
 
@@ -768,9 +781,9 @@ contract AHv2FarmerDai is BaseStrategy {
     {
         uint256 _positionId = activePosition;
         uint256 balance;
+        _sellAVAX(false);
         // only try to realize profits if there is no active position
         if (_positionId == 0 || _debtOutstanding > 0) {
-            _sellAVAX();
             balance = want.balanceOf(address(this));
             if (balance < _debtOutstanding) {
                 // withdraw to cover the debt
@@ -968,7 +981,7 @@ contract AHv2FarmerDai is BaseStrategy {
                 // if we want to remove 80% or more of the position, just close it
                 if ((remainder * PERCENTAGE_DECIMAL_FACTOR) / assets >= 8000) {
                     _closePosition(_positionId, 0, false);
-                    _sellAVAX();
+                    _sellAVAX(false);
                 } else {
                     _closePosition(_positionId, remainder, false);
                 }
@@ -1039,6 +1052,7 @@ contract AHv2FarmerDai is BaseStrategy {
      * @param _newStrategy address of migration target (not used here)
      */
     function _prepareMigration(address _newStrategy) internal override {
+        _sellAVAX(true);
         require(activePosition == 0, "prepareMigration: active position");
     }
 
@@ -1182,6 +1196,7 @@ contract AHv2FarmerDai is BaseStrategy {
         if (params.activation == 0) return false;
 
         // external view function, so we dont bother setting activePosition to a local variable
+        if (_ammCheck(decimals, address(want))) return false;
         (bool check, uint256 remainingLimit) = _checkPositionHealth(
             activePosition
         );
