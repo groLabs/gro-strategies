@@ -9,18 +9,18 @@ def setup_adaptor(account, adaptor):
 
 @pytest.fixture(scope='function')
 def dai_adaptor(a, dai, bouncer, VaultAdaptorMK2):
-    adaptor = a[0].deploy(VaultAdaptorMK2, dai.address, bouncer);
+    adaptor = a[0].deploy(VaultAdaptorMK2, dai.address, 10000, bouncer);
     setup_adaptor(a[0], adaptor)
     return adaptor
 
 @pytest.fixture(scope='function')
 def usdc_adaptor(a, usdc, bouncer, VaultAdaptorMK2):
-    adaptor = a[0].deploy(VaultAdaptorMK2, usdc.address, bouncer);
+    adaptor = a[0].deploy(VaultAdaptorMK2, usdc.address, 10000, bouncer);
     setup_adaptor(a[0], adaptor)
     return adaptor
 
 @pytest.fixture(scope='function')
 def usdt_adaptor(a, usdt, bouncer, VaultAdaptorMK2):
-    adaptor = a[0].deploy(VaultAdaptorMK2, usdt.address, bouncer);
+    adaptor = a[0].deploy(VaultAdaptorMK2, usdt.address, 10000, bouncer);
     setup_adaptor(a[0], adaptor)
     return adaptor

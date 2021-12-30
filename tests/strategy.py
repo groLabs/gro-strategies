@@ -18,25 +18,27 @@ borrowLimit = int(1E7 * 1E18)
 botLimit = 0
 topLimit = 2 ** 256 - 1
 
-def setup_strategy(a, strat, adaptor):
+def setup_strategy(a, want, strat, adaptor):
     strat.setBorrowLimit(borrowLimit);
     adaptor.addStrategy(strat.address, 10000, botLimit, topLimit)
+    strat.setAmmThreshold(want.address, 100)
+    strat.setAmmThreshold('0x6e84a6216eA6dACC71eE8E6b0a5B7322EEbC0fDd', 250)
     strat.setMinWant(10**adaptor.decimals());
 
 @pytest.fixture(scope='function')
-def dai_strategy(a, dai_adaptor, avax, dai, AHv2Farmer):
-    strat = a[0].deploy(AHv2Farmer, dai_adaptor.address, sushi_spell, router, pool_dai, dai_id, [avax.address, dai.address], avax.address);
-    setup_strategy(a[0], strat, dai_adaptor)
+def dai_strategy(a, dai_adaptor, avax, dai, usdc, AHv2FarmerDai):
+    strat = a[0].deploy(AHv2FarmerDai, dai_adaptor.address, sushi_spell, router, pool_dai, dai_id, [avax.address, dai.address], usdc.address);
+    setup_strategy(a[0], dai, strat, dai_adaptor)
     return strat
 
 @pytest.fixture(scope='function')
 def usdc_strategy(a, usdc_adaptor, avax, usdc, AHv2Farmer):
     strat = a[0].deploy(AHv2Farmer, usdc_adaptor.address, sushi_spell, router, pool_usdc, usdt_id, [usdc.address, avax.address], ZERO);
-    setup_strategy(a[0], strat, usdc_adaptor)
+    setup_strategy(a[0], usdc, strat, usdc_adaptor)
     return strat
 
 @pytest.fixture(scope='function')
 def usdt_strategy(a, usdt_adaptor, avax, usdt, AHv2Farmer):
     strat = a[0].deploy(AHv2Farmer, usdt_adaptor.address, sushi_spell, router, pool_usdt, usdt_id, [avax.address, usdt.address], ZERO);
-    setup_strategy(a[0], strat, usdt_adaptor)
+    setup_strategy(a[0], usdt, strat, usdt_adaptor)
     return strat

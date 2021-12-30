@@ -1248,7 +1248,7 @@ contract AHv2Farmer is BaseStrategy {
         if (params.activation == 0) return false;
 
         // external view function, so we dont bother setting activePosition to a local variable
-        if (_ammCheck(decimals, address(want))) return false;
+        if (!_ammCheck(decimals, address(want))) return false;
         (bool check, uint256 remainingLimit) = _checkPositionHealth(
             activePosition
         );
