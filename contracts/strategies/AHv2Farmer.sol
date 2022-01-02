@@ -529,9 +529,6 @@ contract AHv2Farmer is BaseStrategy {
         } else {
             PositionData storage pd = positions[_positionId];
             collateral = pd.collateral;
-            (, uint256[] memory debts) = IHomora(homoraBank).getPositionDebts(
-                _positionId
-            );
             wantBal = want.balanceOf(address(this));
             amounts = new uint256[](2);
             if (!_force) {
@@ -539,9 +536,9 @@ contract AHv2Farmer is BaseStrategy {
                 // Note, expected will be [AVAX, want], as debts always will be [AVAX] and solidity doesnt support
                 // sensible operations like [::-1] or zip...
                 (minAmounts, ) = _calcAvailable(
+                    _positionId,
                     (collateral * (PERCENTAGE_DECIMAL_FACTOR - 50)) /
-                        PERCENTAGE_DECIMAL_FACTOR,
-                    debts
+                        PERCENTAGE_DECIMAL_FACTOR
                 );
             } else {
                 minAmounts = new uint256[](2);
@@ -911,15 +908,13 @@ contract AHv2Farmer is BaseStrategy {
      * @param _collateral lp value of position
      * @param _debts debts to repay (should always be AVAX)
      */
-    function _calcAvailable(uint256 _collateral, uint256[] memory _debts)
+    function _calcAvailable(uint256 _positionId, uint256 _collateral)
         private
         view
         returns (uint256[] memory, uint256)
     {
-        uint256[] memory lpPosition = _calcLpPosition(_collateral);
         uint256 posWant;
-        int256 AVAXPosition = int256(lpPosition[0]) - int256(_debts[0]);
-
+        (uint256[] memory lpPosition, int256 AVAXPosition) = _calcAVAXExposure(_positionId, _collateral);
         if (AVAXPosition > 0) {
             posWant =
                 _uniPrice(uint256(AVAXPosition), wavax)[1] +
@@ -939,11 +934,22 @@ contract AHv2Farmer is BaseStrategy {
         returns (uint256)
     {
         PositionData storage pd = positions[_positionId];
+        (, uint256 estWant) = _calcAvailable(_positionId, pd.collateral);
+        return estWant;
+    }
+
+    function _calcAVAXExposure(uint256 _positionId, uint256 _collateral) 
+        private
+        view
+        returns (uint256[] memory, int256)
+    {
         (, uint256[] memory debts) = IHomora(homoraBank).getPositionDebts(
             _positionId
         );
-        (, uint256 estWant) = _calcAvailable(pd.collateral, debts);
-        return estWant;
+        uint256[] memory lpPosition = _calcLpPosition(_collateral);
+        int256 AVAXPosition = int256(lpPosition[0]) - int256(debts[0]);
+
+        return (lpPosition, AVAXPosition);
     }
 
     /*
