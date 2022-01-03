@@ -60,7 +60,7 @@ contract VaultAdaptorMK2 is
 
     // Underlying token
     address public immutable override token;
-    uint256 private immutable _decimals;
+    uint256 public immutable _decimals;
 
     struct StrategyParams {
         uint256 activation;

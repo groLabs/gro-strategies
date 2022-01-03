@@ -104,7 +104,6 @@ abstract contract BaseStrategy {
     event LogUpdatedRewards(address rewards);
     event LogUpdatedMinReportDelay(uint256 delay);
     event LogUpdatedMaxReportDelay(uint256 delay);
-    event LogUpdatedProfitFactor(uint256 profitFactor);
     event LogUpdatedDebtThreshold(uint256 debtThreshold);
     event LogEmergencyExitEnabled();
 
@@ -115,10 +114,6 @@ abstract contract BaseStrategy {
     // The maximum number of seconds between harvest calls. See
     // `setMaxReportDelay()` for more details.
     uint256 public maxReportDelay = 21600;
-
-    // The minimum multiple that `_callCost` must be above the credit/profit to
-    // be "justifiable". See `setProfitFactor()` for more details.
-    uint256 public profitFactor = 100;
 
     // Use this to adjust the threshold at which running a debt causes a
     // harvest trigger. See `setDebtThreshold()` for more details.
@@ -190,21 +185,6 @@ abstract contract BaseStrategy {
         );
         maxReportDelay = _delay;
         emit LogUpdatedMaxReportDelay(_delay);
-    }
-
-    /**
-     * @notice
-     *  Used to change `profitFactor`. `profitFactor` is used to determine
-     *  if it's worthwhile to harvest, given gas costs. (See `harvestTrigger()`
-     *  for more details.)
-     *
-     * @param _profitFactor A ratio to multiply anticipated
-     * `harvest()` gas cost against.
-     */
-    function setProfitFactor(uint256 _profitFactor) external onlyAuthorized {
-        require(_profitFactor <= 1000, "setProfitFactor: _profitFactor > 1000");
-        profitFactor = _profitFactor;
-        emit LogUpdatedProfitFactor(_profitFactor);
     }
 
     /**
@@ -300,14 +280,14 @@ abstract contract BaseStrategy {
      *
      * See `vault.debtOutstanding()`.
      */
-    function _prepareReturn(uint256 _debtOutstanding)
-        internal
-        virtual
-        returns (
-            uint256 profit,
-            uint256 loss,
-            uint256 debtPayment
-        );
+    // function _prepareReturn(uint256 _debtOutstanding)
+    //     internal
+    //     virtual
+    //     returns (
+    //         uint256 profit,
+    //         uint256 loss,
+    //         uint256 debtPayment
+    //     );
 
     /**
      * Perform any adjustments to the core position(s) of this Strategy given
@@ -318,7 +298,7 @@ abstract contract BaseStrategy {
      *
      * See comments regarding `_debtOutstanding` on `_prepareReturn()`.
      */
-    function _adjustPosition(uint256 _debtOutstanding) internal virtual;
+    // function _adjustPosition(uint256 _debtOutstanding) internal virtual;
 
     /**
      * Liquidate up to `_amountNeeded` of `want` of this strategy's positions,
@@ -356,7 +336,7 @@ abstract contract BaseStrategy {
      * @return `true` if `tend()` should be called, `false` otherwise.
      */
     function tendTrigger(uint256 _callCost)
-        public
+        external
         view
         virtual
         returns (bool)
@@ -370,10 +350,7 @@ abstract contract BaseStrategy {
      *  See comments on `_adjustPosition()`.
      *
      */
-    function tend() external onlyAuthorized {
-        // Don't take profits with this call, but adjust for better gains
-        _adjustPosition(vault.debtOutstanding());
-    }
+    function tend() external virtual onlyAuthorized {}
 
     /**
      * @notice
@@ -391,7 +368,7 @@ abstract contract BaseStrategy {
      *  This call and `tendTrigger` should never return `true` at the
      *  same time.
      *
-     *  See `min/maxReportDelay`, `profitFactor`, `debtThreshold`
+     *  See `min/maxReportDelay`, `debtThreshold`
      *  -controlled parameters that will influence whether this call
      *  returns `true` or not. These parameters will be used in conjunction
      *  with the parameters reported to the Vault (see `params`) to determine
@@ -406,43 +383,11 @@ abstract contract BaseStrategy {
      * @return `true` if `harvest()` should be called, `false` otherwise.
      */
     function harvestTrigger(uint256 _callCost)
-        public
+        external
         view
         virtual
         returns (bool)
-    {
-        StrategyParams memory params = vault.strategies(address(this));
-
-        // Should not trigger if Strategy is not activated
-        if (params.activation == 0) return false;
-
-        // Should not trigger if we haven't waited long enough since previous harvest
-        if (block.timestamp - params.lastReport < minReportDelay) return false;
-
-        // Should trigger if hasn't been called in a while
-        if (block.timestamp - params.lastReport >= maxReportDelay) return true;
-
-        // If some amount is owed, pay it back
-        // NOTE: Since debt is based on deposits, it makes sense to guard against large
-        //       changes to the value from triggering a harvest directly through user
-        //       behavior. This should ensure reasonable resistance to manipulation
-        //       from user-initiated withdrawals as the outstanding debt fluctuates.
-        uint256 outstanding = vault.debtOutstanding();
-        if (outstanding > debtThreshold) return true;
-
-        // Check for profits and losses
-        uint256 total = estimatedTotalAssets();
-        // Trigger if we have a loss to report
-        if (total + debtThreshold < params.totalDebt) return true;
-
-        uint256 profit = 0;
-        if (total > params.totalDebt) profit = total - params.totalDebt; // We've earned a profit!
-
-        // Otherwise, only trigger if it "makes sense" economically (gas cost
-        // is <N% of value moved)
-        uint256 credit = vault.creditAvailable();
-        return (profitFactor * _callCost < credit + profit);
-    }
+    {}
 
     /**
      * @notice
@@ -460,38 +405,7 @@ abstract contract BaseStrategy {
      *  called to report to the Vault on the Strategy's position, especially if
      *  any losses have occurred.
      */
-    function harvest() external virtual {
-        require(msg.sender == address(vault), "harvest: !vault");
-        uint256 profit = 0;
-        uint256 loss = 0;
-        uint256 debtOutstanding = vault.debtOutstanding();
-        uint256 debtPayment = 0;
-        if (emergencyExit) {
-            // Free up as much capital as possible
-            uint256 totalAssets = estimatedTotalAssets();
-            // NOTE: use the larger of total assets or debt outstanding to book losses properly
-            (debtPayment, loss) = _liquidatePosition(
-                totalAssets > debtOutstanding ? totalAssets : debtOutstanding
-            );
-            // NOTE: take up any remainder here as profit
-            if (debtPayment > debtOutstanding) {
-                profit = debtPayment - debtOutstanding;
-                debtPayment = debtOutstanding;
-            }
-        } else {
-            // Free up returns for Vault to pull
-            (profit, loss, debtPayment) = _prepareReturn(debtOutstanding);
-        }
-        // Allow Vault to take up to the "harvested" balance of this contract,
-        // which is the amount it has earned since the last time it reported to
-        // the Vault.
-        debtOutstanding = vault.report(profit, loss, debtPayment);
-
-        // Check if free returns are left, and re-invest them
-        _adjustPosition(debtOutstanding);
-
-        emit LogHarvested(profit, loss, debtPayment, debtOutstanding);
-    }
+    function harvest() external virtual {}
 
     /**
      * @notice
