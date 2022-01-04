@@ -139,7 +139,6 @@ contract AHv2Farmer is BaseStrategy {
     using SafeERC20 for IERC20;
 
     // Base constants
-    uint256 public constant DEFAULT_DECIMALS_FACTOR = 1E18;
     uint256 public constant PERCENTAGE_DECIMAL_FACTOR = 1E4;
     // LP Pool token
     IUniPool public immutable pool;
@@ -532,6 +531,9 @@ contract AHv2Farmer is BaseStrategy {
                     (amounts[0] * (PERCENTAGE_DECIMAL_FACTOR - 100)) /
                     PERCENTAGE_DECIMAL_FACTOR;
             } else {
+                amounts[1] =
+                    (amounts[1] * (PERCENTAGE_DECIMAL_FACTOR - 100)) /
+                    PERCENTAGE_DECIMAL_FACTOR;
                 collateral = collateral / 2;
             }
         } else {
@@ -665,12 +667,12 @@ contract AHv2Farmer is BaseStrategy {
 
     function _homoraClose(
         uint256 _positionId,
-        uint256[] memory minAmounts,
-        uint256 collateral,
-        uint256 repay
+        uint256[] memory _minAmounts,
+        uint256 _collateral,
+        uint256 _repay
     ) private returns (uint256)
     {
-        RepayAmounts memory amt = _formatClose(minAmounts, collateral, repay);
+        RepayAmounts memory amt = _formatClose(_minAmounts, _collateral, _repay);
         return IHomora(homoraBank).execute(
             _positionId,
             spell,
@@ -774,7 +776,7 @@ contract AHv2Farmer is BaseStrategy {
         return amounts;
     }
 
-    function estimatedTotalAssets() public view override returns (uint256) {
+    function estimatedTotalAssets() external view override returns (uint256) {
         (uint256 totalAssets, ) = _estimatedTotalAssets(activePosition);
         return totalAssets;
     }
@@ -817,7 +819,7 @@ contract AHv2Farmer is BaseStrategy {
      * @notice expected profit/loss of the strategy
      */
     function expectedReturn() external view returns (uint256) {
-        uint256 totalAssets = estimatedTotalAssets();
+        (uint256 totalAssets, ) = _estimatedTotalAssets(activePosition);
         uint256 debt = vault.strategyDebt();
         if (totalAssets < debt) return 0;
         return totalAssets - debt;
@@ -853,11 +855,7 @@ contract AHv2Farmer is BaseStrategy {
             balance = want.balanceOf(address(this));
             if (balance < _debtOutstanding && positionId > 0) {
                 // withdraw to cover the debt
-                if (
-                    (_debtOutstanding * PERCENTAGE_DECIMAL_FACTOR) /
-                        (positions[positionId].wantOpen[0] + balance) >=
-                    8000
-                ) {
+                if (compare(_debtOutstanding, (positions[positionId].wantOpen[0] + balance), 8000)) {
                     balance = 0;
                 } else {
                     balance = _debtOutstanding - balance;
@@ -901,18 +899,14 @@ contract AHv2Farmer is BaseStrategy {
             openPrice[0],
             false
         );
-        uint256 difference;
-        if (openPrice[1] < currentPrice[1]) {
-            difference =
-                ((currentPrice[1] * PERCENTAGE_DECIMAL_FACTOR) / openPrice[1]) -
-                PERCENTAGE_DECIMAL_FACTOR;
-        } else {
-            difference =
-                ((openPrice[1] * PERCENTAGE_DECIMAL_FACTOR) / currentPrice[1]) -
-                PERCENTAGE_DECIMAL_FACTOR;
-        }
-        if (difference >= ilThreshold) return true;
-        return false;
+        bool check = (openPrice[1] < currentPrice[1]) ? 
+            compare(currentPrice[1], openPrice[1], ilThreshold+PERCENTAGE_DECIMAL_FACTOR) : 
+            compare(openPrice[1], currentPrice[1], ilThreshold+PERCENTAGE_DECIMAL_FACTOR);
+        return check;
+    }
+
+    function compare(uint256 a, uint256 b, uint256 target) private view returns (bool) {
+        return a * PERCENTAGE_DECIMAL_FACTOR / b >= target;
     }
 
     /*
@@ -983,8 +977,10 @@ contract AHv2Farmer is BaseStrategy {
             short = true;
             AVAXPosition = AVAXPosition * -1;
         }
-        if (uint256(AVAXPosition) * PERCENTAGE_DECIMAL_FACTOR / lpPosition[0] > exposureThreshold) {
-            lpPosition[1] = uint256(AVAXPosition) * adjustRatio / PERCENTAGE_DECIMAL_FACTOR;
+        if (compare(uint256(AVAXPosition), lpPosition[0], exposureThreshold)) {
+            uint256 ratio = (uint256(AVAXPosition) * adjustRatio / PERCENTAGE_DECIMAL_FACTOR) * PERCENTAGE_DECIMAL_FACTOR / lpPosition[0];
+            lpPosition[0] = lpPosition[0] * ratio / PERCENTAGE_DECIMAL_FACTOR;
+            lpPosition[1] = lpPosition[1] * ratio / PERCENTAGE_DECIMAL_FACTOR;
             return (true, short, lpPosition);
         }
     }
@@ -1081,7 +1077,7 @@ contract AHv2Farmer is BaseStrategy {
                 }
 
                 // if we want to remove 80% or more of the position, just close it
-                if ((remainder * PERCENTAGE_DECIMAL_FACTOR) / assets >= 8000) {
+                if (compare(remainder, assets, 8000)) {
                     _closePosition(_positionId, 0, true, true);
                     _sellAVAX();
                     _sellYieldToken();
@@ -1153,8 +1149,7 @@ contract AHv2Farmer is BaseStrategy {
             bool short;
             (_check, short, lpPosition) = _calcAVAXExposure(_positionId, collateral);
             if (_check) {
-                collateral = collateral * (lpPosition[1] * PERCENTAGE_DECIMAL_FACTOR / lpPosition[0]) / PERCENTAGE_DECIMAL_FACTOR;
-                _closePosition(_positionId, collateral, false, short);
+                _closePosition(_positionId, lpPosition[1], !short, short);
             }
         }
     }
@@ -1245,10 +1240,8 @@ contract AHv2Farmer is BaseStrategy {
         override
         returns (bool)
     {
-        StrategyParams memory params = vault.strategies(address(this));
-
         // Should not trigger if Strategy is not activated
-        if (params.activation == 0) return false;
+        if (vault.strategies(address(this)).activation == 0) return false;
 
         // external view function, so we dont bother setting activePosition to a local variable
         if (!_ammCheck(decimals, address(want))) return false;
@@ -1309,7 +1302,7 @@ contract AHv2Farmer is BaseStrategy {
         (bool adjustFirst, uint256 remainingLimit) = _checkPositionHealth(positionId);
         if (emergencyExit) {
             // Free up as much capital as possible
-            uint256 totalAssets = estimatedTotalAssets();
+            (uint256 totalAssets, ) = _estimatedTotalAssets(positionId);
             // NOTE: use the larger of total assets or debt outstanding to book losses properly
             (debtPayment, loss) = _liquidatePosition(
                 totalAssets > debtOutstanding ? totalAssets : debtOutstanding

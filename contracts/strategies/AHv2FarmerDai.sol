@@ -726,7 +726,7 @@ contract AHv2FarmerDai is BaseStrategy {
         return amounts;
     }
 
-    function estimatedTotalAssets() public view override returns (uint256) {
+    function estimatedTotalAssets() external view override returns (uint256) {
         (uint256 totalAssets, ) = _estimatedTotalAssets(activePosition);
         return totalAssets;
     }
@@ -769,7 +769,7 @@ contract AHv2FarmerDai is BaseStrategy {
      * @notice expected profit/loss of the strategy
      */
     function expectedReturn() external view returns (uint256) {
-        uint256 totalAssets = estimatedTotalAssets();
+        (uint256 totalAssets, ) = _estimatedTotalAssets(activePosition);
         uint256 debt = vault.strategyDebt();
         if (totalAssets < debt) return 0;
         return totalAssets - debt;
@@ -1104,7 +1104,7 @@ contract AHv2FarmerDai is BaseStrategy {
             (_check, short, lpPosition) = _calcAVAXExposure(_positionId, collateral);
             if (_check) {
                 collateral = collateral * (lpPosition[1] * PERCENTAGE_DECIMAL_FACTOR / lpPosition[0]) / PERCENTAGE_DECIMAL_FACTOR;
-                _closePosition(_positionId, collateral, false, short);
+                _closePosition(_positionId, collateral, !short, short);
             }
         }
     }
@@ -1259,7 +1259,7 @@ contract AHv2FarmerDai is BaseStrategy {
         (bool adjustFirst, uint256 remainingLimit) = _checkPositionHealth(positionId);
         if (emergencyExit) {
             // Free up as much capital as possible
-            uint256 totalAssets = estimatedTotalAssets();
+            (uint256 totalAssets, ) = _estimatedTotalAssets(positionId);
             // NOTE: use the larger of total assets or debt outstanding to book losses properly
             (debtPayment, loss) = _liquidatePosition(
                 totalAssets > debtOutstanding ? totalAssets : debtOutstanding

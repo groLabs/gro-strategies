@@ -612,7 +612,7 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         await usdcAdaptor.strategyHarvest(0, {from: governance})
     })
 
-    it('Should be possible to adjust a long position towards a market netural position', async () => {
+    it.only('Should be possible to adjust a long position towards a market netural position', async () => {
         const sid = await snapshotChain();
         await usdc.approve(router, constants.MAX_UINT256, {from: investor1});
         await avax.approve(router, constants.MAX_UINT256, {from: investor1});
@@ -625,8 +625,10 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
 
         const initEth = await web3.eth.getBalance(primaryStrategy.address);
         const initExposure = await primaryStrategy.getExposure();
+        console.log('pre')
         console.log(initExposure[1][0]);
         console.log(initExposure[1][1]);
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
         let change;
         const larget_number = toBN(1E4).mul(toBN(1E18));
         while (true) {
@@ -636,21 +638,43 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
             if (change == true) break;
         }
         lastExposure = await primaryStrategy.getExposure();
+        console.log('post 1')
         console.log(lastExposure[1][0].toString());
         console.log(lastExposure[1][1].toString());
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
         await primaryStrategy.setStrategyThresholds(800, 5, 10, 5000, {from: governance});
         trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
         console.log(trigger);
         await usdcAdaptor.strategyHarvest(0, {from: governance});
         lastExposure = await primaryStrategy.getExposure();
+        console.log('post 2')
         console.log(lastExposure[1][0].toString());
         console.log(lastExposure[1][1].toString());
-        console.log(web3.eth.getBalance(primaryStrategy.address));
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        console.log(trigger);
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
         lastExposure = await primaryStrategy.getExposure();
-        lastExposure = await primaryStrategy.getExposure();
+        console.log('post 3')
         console.log(lastExposure[1][0].toString());
         console.log(lastExposure[1][1].toString());
-        console.log(web3.eth.getBalance(primaryStrategy.address));
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        console.log(trigger);
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        lastExposure = await primaryStrategy.getExposure();
+        console.log('post 4')
+        console.log(lastExposure[1][0].toString());
+        console.log(lastExposure[1][1].toString());
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        console.log(trigger);
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        lastExposure = await primaryStrategy.getExposure();
+        console.log('post 5')
+        console.log(lastExposure[1][0].toString());
+        console.log(lastExposure[1][1].toString());
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
         // // revert the swap
         // const userWant = await usdc.balanceOf(investor1);
         // await swap(userWant, [tokens.usdc.address, tokens.avax.address])
@@ -667,7 +691,7 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         return revertChain(sid);
     })
 
-    it('Should be possible to adjust a short position towards a market netural position', async () => {
+    it.only('Should be possible to adjust a short position towards a market netural position', async () => {
         const sid = await snapshotChain();
         await usdc.approve(router, constants.MAX_UINT256, {from: investor1});
         await avax.approve(router, constants.MAX_UINT256, {from: investor1});
@@ -678,11 +702,12 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         await usdcAdaptor.strategyHarvest(0, {from: governance});
         const position = await primaryStrategy.activePosition();
 
-        console.log
+        console.log('pre')
         const initEth = await web3.eth.getBalance(primaryStrategy.address);
         const initExposure = await primaryStrategy.getExposure();
         console.log(initExposure[1][0]);
         console.log(initExposure[1][1]);
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
         // simulate price movment by trading in the pool
         const large_number = toBN(1E6).mul(toBN(1E6));
         let change;
@@ -694,22 +719,44 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
             if (change == true) break;
         }
         // run harvest
-        const lastExposure = await primaryStrategy.getExposure();
+        lastExposure = await primaryStrategy.getExposure();
+        console.log('post 1')
         console.log(lastExposure[1][0].toString());
         console.log(lastExposure[1][1].toString());
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
         await primaryStrategy.setStrategyThresholds(800, 5, 10, 5000, {from: governance});
         trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
         console.log(trigger);
         await usdcAdaptor.strategyHarvest(0, {from: governance});
         lastExposure = await primaryStrategy.getExposure();
+        console.log('post 2')
         console.log(lastExposure[1][0].toString());
         console.log(lastExposure[1][1].toString());
-        console.log(web3.eth.getBalance(primaryStrategy.address));
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        console.log(trigger);
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
         lastExposure = await primaryStrategy.getExposure();
-        lastExposure = await primaryStrategy.getExposure();
+        console.log('post 3')
         console.log(lastExposure[1][0].toString());
         console.log(lastExposure[1][1].toString());
-        console.log(web3.eth.getBalance(primaryStrategy.address));
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        console.log(trigger);
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        lastExposure = await primaryStrategy.getExposure();
+        console.log('post 4')
+        console.log(lastExposure[1][0].toString());
+        console.log(lastExposure[1][1].toString());
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        console.log(trigger);
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        lastExposure = await primaryStrategy.getExposure();
+        console.log('post 5')
+        console.log(lastExposure[1][0].toString());
+        console.log(lastExposure[1][1].toString());
+        console.log(await web3.eth.getBalance(primaryStrategy.address));
         // await usdcAdaptor.strategyHarvest(0, {from: governance})
         // active position should == 0
         // expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));

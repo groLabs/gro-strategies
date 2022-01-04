@@ -559,7 +559,7 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         await daiAdaptor.strategyHarvest(0, {from: governance})
     })
 
-    it('Should be possible to adjust a short position towards a market netural position', async () => {
+    it.only('Should be possible to adjust a short position towards a market netural position', async () => {
         const sid = await snapshotChain();
         await dai.approve(router, constants.MAX_UINT256, {from: investor1});
         await avax.approve(router, constants.MAX_UINT256, {from: investor1});
@@ -602,7 +602,7 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         return revertChain(sid);
     })
 
-    it('Should be possible to adjust a long position towards a market netural position', async () => {
+    it.only('Should be possible to adjust a long position towards a market netural position', async () => {
         const sid = await snapshotChain();
         await dai.approve(router, constants.MAX_UINT256, {from: investor1});
         await avax.approve(router, constants.MAX_UINT256, {from: investor1});

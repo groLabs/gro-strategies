@@ -35,9 +35,9 @@ contract TestStrategy is BaseStrategy {
         doReentrancy = !doReentrancy;
     }
 
-    function estimatedTotalAssets() public override view returns (uint256) {
+    function estimatedTotalAssets() external override view returns (uint256) {
         // For mock, this is just everything we have
-        return want.balanceOf(address(this));
+        return _estimatedTotalAssets();
     }
 
     function _prepareReturn(uint256 _debtOutstanding)
@@ -126,8 +126,12 @@ contract TestStrategy is BaseStrategy {
         return new address[](0); // No additional tokens/tokenized positions for mock
     }
 
+    function _estimatedTotalAssets() internal view returns (uint256) {
+        return want.balanceOf(address(this));
+    }
+
     function expectedReturn() external view returns (uint256) {
-        uint256 estimateAssets = estimatedTotalAssets();
+        uint256 estimateAssets = _estimatedTotalAssets();
 
         uint256 debt = vault.strategies(address(this)).totalDebt;
         if (debt > estimateAssets) {
