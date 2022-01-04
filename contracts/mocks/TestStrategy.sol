@@ -43,7 +43,6 @@ contract TestStrategy is BaseStrategy {
     function _prepareReturn(uint256 _debtOutstanding)
         internal
         view
-        override
         returns (
             uint256 profit,
             uint256 loss,
@@ -75,7 +74,7 @@ contract TestStrategy is BaseStrategy {
         }
     }
 
-    function _adjustPosition(uint256 _debtOutstanding) internal override {
+    function _adjustPosition(uint256 _debtOutstanding) internal {
         // Whatever we have "free", consider it "invested" now
     }
 
