@@ -53,6 +53,7 @@ module.exports = {
     hardhat: {
       gasPrice: 225000000000,
       chainId: 43112, //!forkingData ? 43112 : undefined, //Only specify a chainId if we are not forking
+      allowUnlimitedContractSize: true,
       forking: forkingData
     },
     local: {
@@ -102,7 +103,7 @@ module.exports = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 5,
+            runs: 200,
           },
         }
       },

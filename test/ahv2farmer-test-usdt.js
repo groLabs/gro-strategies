@@ -201,14 +201,41 @@ contract('Alpha homora test usdt/avax joe pool', function (accounts) {
     it('Should be possible to add to a position', async () => {
         await usdtAdaptor.strategyHarvest(0, {from: governance})
         const position = await primaryStrategy.activePosition();
-        const alphaData = await homoraBank.methods.getPositionInfo(position).call()
-        const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
+        return expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
 
-        // add 1 M usdt to adaper
-        await setBalance('usdt', usdtAdaptor.address, '10000');
+        // add 10k usdt to adaper
+        const amount = '10000'
+        await setBalance('usdt', investor1, amount);
+        await usdtAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
         // run harvest
         await expect(usdtAdaptor.strategyHarvest(0, {from: governance})).to.eventually.be.fulfilled;
         // we should have the same position
+        return expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
+    })
+
+    // Check that we can add assets to a position
+    it('Should correctly invest available assets when opening a position independent of gains', async () => {
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
+        const position = await primaryStrategy.activePosition();
+        return expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+
+        // add 10k usdt to adaper
+        const init_estimated_assets = await primaryStrategy.estimatedTotalAssets();
+        const amount = '10000'
+        await setBalance('usdt', investor1, amount);
+        await setBalance('usdt', primaryStrategy.address, '2000');
+        await usdtAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
+        await expect(usdt.balanceOf(usdtAdaptor.address)).to.eventually.be.a.bignumber.closeTo(toBN(amount).mul(toBN(1E6)), toBN(1E6))
+        await expect(usdt.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(toBN(2000).mul(toBN(1E6)), toBN(1E6))
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(init_estimated_assets.add(toBN(2000).mul(toBN(1E6))), toBN(1E6))
+        const estimated_assets = await primaryStrategy.estimatedTotalAssets();
+
+        // run harvest
+        await expect(usdtAdaptor.strategyHarvest(0, {from: governance})).to.eventually.be.fulfilled;
+        await expect(usdt.balanceOf(usdtAdaptor.address)).to.eventually.be.a.bignumber.equal(toBN(0));
+        await expect(usdt.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.equal(toBN(0))
+        // we should have the same position
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(estimated_assets.add(toBN(amount).mul(toBN(1E6))), toBN(1E6))
         return expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
     })
   })
@@ -324,6 +351,34 @@ contract('Alpha homora test usdt/avax joe pool', function (accounts) {
         await expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
 
         return revertChain(sid);
+    })
+
+    // Check that we can add assets to a position
+    it('Should correctly invest available assets after force closing independent of profit status', async () => {
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
+        const position = await primaryStrategy.activePosition();
+        return expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+
+        // add 10k usdt to adaper
+        const init_estimated_assets = await primaryStrategy.estimatedTotalAssets();
+        const amount = '10000'
+        await setBalance('usdt', investor1, amount);
+        await setBalance('usdt', primaryStrategy.address, '2000');
+        await usdtAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
+        await expect(usdt.balanceOf(usdtAdaptor.address)).to.eventually.be.a.bignumber.closeTo(toBN(amount).mul(toBN(1E6)), toBN(1E6))
+        await expect(usdt.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(toBN(2000).mul(toBN(1E6)), toBN(1E6))
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(init_estimated_assets.add(toBN(2000).mul(toBN(1E6))), toBN(1E6))
+        await primaryStrategy.forceClose(position, {from: governance})
+        await expect(usdt.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(init_estimated_assets.add(toBN(2000).mul(toBN(1E6))), toBN(1E6))
+        const estimated_assets = await primaryStrategy.estimatedTotalAssets();
+
+        // run harvest
+        await expect(usdtAdaptor.strategyHarvest(0, {from: governance})).to.eventually.be.fulfilled;
+        await expect(usdt.balanceOf(usdtAdaptor.address)).to.eventually.be.a.bignumber.equal(toBN(0));
+        await expect(usdt.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.equal(toBN(0))
+        // we should have the same position
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(estimated_assets.add(toBN(amount).mul(toBN(1E6))), toBN(1E6))
+        return expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
     })
   })
 
@@ -548,6 +603,235 @@ contract('Alpha homora test usdt/avax joe pool', function (accounts) {
     })
   })
 
+  describe('long/short adjustments', function () {
+    beforeEach(async function () {
+        const amount = '100000';
+        await setBalance('usdt', investor1, amount);
+        await usdtAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
+        await usdtAdaptor.strategyHarvest(0, {from: governance})
+        await primaryStrategy.setStrategyThresholds(400, 10, 100, 5000, {from: governance});
+    })
+
+    it('Should be possible to adjust a long position towards a market netural position', async () => {
+        const sid = await snapshotChain();
+        await usdt.approve(router, constants.MAX_UINT256, {from: investor1});
+        await avax.approve(router, constants.MAX_UINT256, {from: investor1});
+        await primaryStrategy.setMinWant('20000000000', {from: governance});
+
+        const amount = '100000';
+        await setBalance('usdt', investor1, amount);
+        await usdtAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
+
+        // first harvest
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        const position = await primaryStrategy.activePosition();
+
+        const initExposure = await primaryStrategy.getExposure();
+        //await expect(usdtAdaptor.strategies(primaryStrategy.address)).to.eventually.have.property("totalGain").that.is.a.bignumber.gt(preHarvestProfit);
+        // Not overexposed
+        assert.equal(initExposure[0], false);
+        assert.equal(initExposure[1], false);
+        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.equal(toBN(0));
+        let _assets = await primaryStrategy.estimatedTotalAssets();
+        let _avax = await web3.eth.getBalance(primaryStrategy.address);
+
+        let change;
+        const large_number = toBN(1E4).mul(toBN(1E18));
+        // simulate swaps
+        while (true) {
+            await setBalance('avax', investor1, '10000');
+            await expect(swap(large_number, [tokens.avax.address, tokens.usdt.address])).to.eventually.be.fulfilled;
+            change = await primaryStrategy.volatilityCheck();
+            if (change == true) break;
+        }
+        // increase the il threshold to stop the position from closing
+        // should now tend towards market neutral during each harvest
+        await primaryStrategy.setStrategyThresholds(800, 10, 100, 5000, {from: governance});
+        let lastExposure = await primaryStrategy.getExposure();
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        let currentPos = await primaryStrategy.activePosition();
+        // over exposed and long
+        assert.equal(lastExposure[0], true);
+        assert.equal(lastExposure[1], false);
+        _assets = await primaryStrategy.estimatedTotalAssets();
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.lt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())));
+        await expect(lastExposure[2][1]).to.be.a.bignumber.gt(toBN(0));
+        let currentExposure = lastExposure[2][1];
+
+        // second harvest
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
+
+        // we pay back 50% of over over exposure, but since we started at 400 bp price change
+        // we still expect to be overexposed
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        lastExposure = await primaryStrategy.getExposure();
+        // should have avax
+        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.gt(_avax);
+        _avax = await web3.eth.getBalance(primaryStrategy.address);
+
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        currentPos = await primaryStrategy.activePosition();
+
+        // still over exposed and long
+        assert.equal(lastExposure[0], true);
+        assert.equal(lastExposure[1], false);
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(_assets, toBN(150E6));
+        _assets = await primaryStrategy.estimatedTotalAssets();
+
+        // check that we are overexposure (this manually calculates overexposure)
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.lt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())));
+        await expect(lastExposure[2][1]).to.be.a.bignumber.lt(currentExposure);
+
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+
+        // second harvest
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        lastExposure = await primaryStrategy.getExposure();
+        // should have less avax
+        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.lt(_avax);
+        _avax = await web3.eth.getBalance(primaryStrategy.address);
+
+        // still over exposed and long
+        assert.equal(lastExposure[0], false);
+        assert.equal(lastExposure[1], false);
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(_assets, toBN(150E6));
+        _assets = await primaryStrategy.estimatedTotalAssets();
+
+        // check that we are overexposure (this manually calculates overexposure)
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.gt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())));
+        // exposure should be less
+
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        // third harvest, should have reduced the exposure below limit
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        // should still have some avax left
+        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
+        _avax = await web3.eth.getBalance(primaryStrategy.address);
+
+        lastExposure = await primaryStrategy.getExposure();
+
+        // we're not over exposed anymore but will still have
+        assert.equal(lastExposure[0], false);
+        assert.equal(lastExposure[1], false);
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(_assets, toBN(150E6));
+        _assets = await primaryStrategy.estimatedTotalAssets();
+
+        // check that we arent overexposure (this manually calculates overexposure)
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.gt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())));
+
+        // should still have some avax to sell
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.false;
+    })
+
+    it('Should be possible to adjust a short position towards a market netural position', async () => {
+        const sid = await snapshotChain();
+        await usdt.approve(router, constants.MAX_UINT256, {from: investor1});
+        await avax.approve(router, constants.MAX_UINT256, {from: investor1});
+        await primaryStrategy.setMinWant('20000000000', {from: governance});
+
+        const amount = '100000';
+        await setBalance('usdt', investor1, amount);
+        await usdtAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        const position = await primaryStrategy.activePosition();
+
+        const initExposure = await primaryStrategy.getExposure();
+        //await expect(usdtAdaptor.strategies(primaryStrategy.address)).to.eventually.have.property("totalGain").that.is.a.bignumber.gt(preHarvestProfit);
+        // Not overexposed
+        assert.equal(initExposure[0], false);
+        assert.equal(initExposure[1], false);
+        let _assets = await primaryStrategy.estimatedTotalAssets();
+
+        let change;
+        const large_number = toBN(1E6).mul(toBN(1E6));
+        while (true) {
+            await setBalance('usdt', investor1, '1000000');
+            await swap(large_number, [tokens.usdt.address, tokens.avax.address])
+            change = await primaryStrategy.volatilityCheck();
+            // once were above a 4% price change
+            if (change == true) break;
+        }
+
+        // increase the il threshold to stop the position from closing
+        // should now tend towards market neutral during each harvest
+        await primaryStrategy.setStrategyThresholds(800, 10, 100, 5000, {from: governance});
+        let lastExposure = await primaryStrategy.getExposure();
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        let currentPos = await primaryStrategy.activePosition();
+        // over exposed and short
+        assert.equal(lastExposure[0], true);
+        assert.equal(lastExposure[1], true);
+        _assets = await primaryStrategy.estimatedTotalAssets();
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.lt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
+        await expect(lastExposure[2][1]).to.be.a.bignumber.gt(toBN(0));
+        let currentExposure = lastExposure[2][1];
+
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        // first harvest
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        lastExposure = await primaryStrategy.getExposure();
+
+
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        currentPos = await primaryStrategy.activePosition();
+        // over exposed and short
+        assert.equal(lastExposure[0], true);
+        assert.equal(lastExposure[1], true);
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(_assets);
+        _assets = await primaryStrategy.estimatedTotalAssets();
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.lt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
+        await expect(lastExposure[2][1]).to.be.a.bignumber.lt(currentExposure);
+        currentExposure = lastExposure[2][1];
+
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        // second harvest
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        lastExposure = await primaryStrategy.getExposure();
+
+        // over exposed and short
+        assert.equal(lastExposure[0], true);
+        assert.equal(lastExposure[1], true);
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(_assets);
+        _assets = await primaryStrategy.estimatedTotalAssets();
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.lt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
+        await expect(lastExposure[2][1]).to.be.a.bignumber.lt(currentExposure);
+        currentExposure = lastExposure[2][1];
+
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
+        // third harvest
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+
+        lastExposure = await primaryStrategy.getExposure();
+
+        // over exposed and short
+        assert.equal(lastExposure[0], true);
+        assert.equal(lastExposure[1], true);
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(_assets);
+        _assets = await primaryStrategy.estimatedTotalAssets();
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.lt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
+
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        // forth harvest
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        lastExposure = await primaryStrategy.getExposure();
+        assert.equal(lastExposure[0], false);
+        assert.equal(lastExposure[1], false);
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(_assets);
+        _assets = await primaryStrategy.estimatedTotalAssets();
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.gt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
+
+        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.false;
+        return revertChain(sid);
+    })
+  })
+
   describe('Assets interactions', function () {
     beforeEach(async function () {
         await usdt.approve(router, constants.MAX_UINT256, {from: investor1});
@@ -618,11 +902,11 @@ contract('Alpha homora test usdt/avax joe pool', function (accounts) {
         await setBalance('usdt', usdtAdaptor.address, amount);
         await usdtAdaptor.strategyHarvest(0, {from: governance});
         const position = await primaryStrategy.activePosition();
-        const initAssets = await primaryStrategy.estimatedTotalAssets();
+        const _assets = await primaryStrategy.estimatedTotalAssets();
         const reserves = await usdt.balanceOf(primaryStrategy.address);
         await setBalance('usdt', primaryStrategy.address, amount);
         // expect totalAssets
-        const expected = toBN(amount).mul(toBN(1E6)).sub(reserves).add(initAssets);
+        const expected = toBN(amount).mul(toBN(1E6)).sub(reserves).add(_assets);
         // estimated totalAssets
         await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.equal(expected);
         // update sushi rewards
@@ -659,12 +943,12 @@ contract('Alpha homora test usdt/avax joe pool', function (accounts) {
         const alphaDataPre = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtPre = await homoraBank.methods.getPositionDebts(position).call()
         const amount = '200000'
-        const initAssets = await primaryStrategy.estimatedTotalAssets();
+        const _assets = await primaryStrategy.estimatedTotalAssets();
         const reserves = await usdt.balanceOf(primaryStrategy.address);
         // add "profit" to strategy
         // await setBalance('usdt', primaryStrategy.address, amount);
         // should report more asssets and more expected returns
-        // await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(initAssets);
+        // await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(_assets);
         // await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.gt(expected);
         const preSwap = await primaryStrategy.expectedReturn();
         const large_number = toBN(1E5).mul(toBN(1E18));
@@ -717,18 +1001,9 @@ contract('Alpha homora test usdt/avax joe pool', function (accounts) {
         return expect(primaryStrategy.minWant()).to.eventually.be.a.bignumber.equal(toBN(200));
     })
 
-    it('Should be possible to change the ILThreshold', async () => {
-        const originalIlThreshold = await primaryStrategy.ilThreshold();
-        await expect(originalIlThreshold).to.be.a.bignumber.equal(toBN(400));
-        // cant set threshold above 100%
-        await expect(primaryStrategy.setIlThreshold(10001)).to.eventually.be.rejected;
-        await primaryStrategy.setIlThreshold(100, {from: governance});
-        return expect(primaryStrategy.ilThreshold()).to.eventually.be.a.bignumber.equal(toBN(100));
-    })
-
     it('Should not be possible to interact with setter unless owner of strategy', async () => {
         await expect(primaryStrategy.setMinWant(100)).to.eventually.be.rejected;
-        return expect(primaryStrategy.setIlThreshold(100)).to.eventually.be.rejected;
+        return expect(primaryStrategy.setStrategyThresholds(100, 10, 50, 5000)).to.eventually.be.rejected;
     })
   })
 
@@ -743,14 +1018,168 @@ contract('Alpha homora test usdt/avax joe pool', function (accounts) {
         const amount_norm_weth = toBN(amount).mul(toBN(1E18));
         await setBalance('usdt', investor1, amount);
         await usdtAdaptor.deposit(amount_norm_usdt, {from: investor1})
-        await expect(usdtAdaptor.strategyHarvest(0, amount_norm_usdt, amount_norm_weth, {from: governance})).to.eventually.be.rejected;
+        await primaryStrategy.setAmmThreshold(usdt.address, 0, {from: governance});
+        await expect(usdtAdaptor.strategyHarvest(0, {from: governance})).to.eventually.be.rejectedWith('!ammCheck');
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.eq(toBN(0));
+        await primaryStrategy.setAmmThreshold(usdt.address, 2000, {from: governance});
         await usdtAdaptor.strategyHarvest(0, {from: governance});
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
-        const position = primaryStrategy.activePosition()
+        const position = await primaryStrategy.activePosition()
         // force close the position
         await primaryStrategy.setAmmThreshold(usdt.address, 0, {from: governance});
-        return expect(primaryStrategy.forceClose(position, {from: governance})).to.eventually.be.rejected;
+        //await expect(primaryStrategy.forceClose(position, {from: governance})).to.eventually.be.rejectedWith('_closePosition: !ammCheck');
+        await primaryStrategy.setAmmThreshold(usdt.address, 200, {from: governance});
+        await primaryStrategy.setStrategyThresholds(0, 10, 50, 5000, {from: governance});
+
+        await primaryStrategy.setAmmThreshold(sushiToken, 0, {from: governance});
+        return expect(usdtAdaptor.strategyHarvest(0, {from: governance})).to.eventually.be.rejectedWith('!ammCheck');
+    })
+
+    it('Should be possible to get positionData', async () => {
+        await setBalance('usdt', investor1, '10000');
+        await usdtAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        const pos = await primaryStrategy.activePosition();
+        return expect(primaryStrategy.getPosition(pos)).to.eventually.have.property("collateral").that.is.a.bignumber.gt(toBN("0"));
+    })
+
+    it('Should be return 0 when calling calcEstimatedWant if theres no open position', async () => {
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
+        return expect(primaryStrategy.calcEstimatedWant()).to.eventually.be.a.bignumber.equal(toBN(0));
+    })
+
+    it('Should be return false when calling volatilityCheck if theres no open position', async () => {
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
+        return expect(primaryStrategy.volatilityCheck()).to.eventually.be.false;
+    })
+
+    it('Should be return false when calling tendTrigger', async () => {
+        return expect(primaryStrategy.tendTrigger(0)).to.eventually.be.false;
+    })
+
+    it('Should be possible to migrate a strategy', async () => {
+        const newStrat= await AHStrategy.new(usdtVault.address, sushiSpell, router, pool, poolID, [tokens.usdt.address, tokens.avax.address], ZERO);
+        await setBalance('usdt', investor1, '10000');
+        await usdtAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+
+        await expect(usdtAdaptor.migrateStrategy(primaryStrategy.address, newStrat.address, {from: governance})).to.eventually.be.rejectedWith('active position');
+        await primaryStrategy.forceClose(await primaryStrategy.activePosition(), {from: governance});
+        return expect(usdtAdaptor.migrateStrategy(primaryStrategy.address, newStrat.address, {from: governance})).to.eventually.be.fulfilled;
+    })
+
+    it('Should be possible to pull out all assets through an emergency exit', async () => {
+        await setBalance('usdt', investor1, '10000');
+        await usdtAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+
+        await primaryStrategy.setEmergencyExit({from: governance});
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(toBN(1E6));
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        // some leftover assets are acceptable
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(toBN(1E6));
+    })
+
+    it('Should be possible to repay debt to the vault', async () => {
+        await setBalance('usdt', investor1, '10000');
+        await usdtAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(toBN(1E6));
+        await usdtAdaptor.setDebtRatio(primaryStrategy.address, 6000, {
+          from: governance,
+        });
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(toBN('6000').mul(toBN(1E6)), toBN(1E6));
+        await usdtAdaptor.setDebtRatio(primaryStrategy.address, 0, {
+          from: governance,
+        });
+        debts = await homoraBank.methods.getPositionDebts(await primaryStrategy.activePosition()).call()
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        // some leftover assets are acceptable
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(toBN(1E6));
+    })
+
+    it('Should be possible to repay debt to the vault even when it wants to close', async () => {
+        await setBalance('usdt', investor1, '10000');
+        await usdtAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(toBN(1E6));
+
+        await usdtAdaptor.setDebtRatio(primaryStrategy.address, 6000, {
+          from: governance,
+        });
+        await primaryStrategy.setStrategyThresholds(0, 10, 50, 5000, {from: governance});
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(toBN('6000').mul(toBN(1E6)), toBN(1E6));
+        await expect(usdt.balanceOf(usdtAdaptor.address)).to.eventually.be.a.bignumber.closeTo(toBN(4000).mul(toBN(1E6)), toBN(1E6));
+        await usdtAdaptor.setDebtRatio(primaryStrategy.address, 0, {
+          from: governance,
+        });
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        await expect(usdt.balanceOf(usdtAdaptor.address)).to.eventually.be.a.bignumber.closeTo(toBN(10000).mul(toBN(1E6)), toBN(1E6));
+        // some leftover assets are acceptable
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(toBN(1E6));
+    })
+
+    it('Should report loss correctly', async () => {
+        await setBalance('usdt', investor1, '10000');
+        await usdtAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await primaryStrategy.setBorrowLimit(toBN('8000').mul(toBN(1E6)), {from: governance});
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        await expect(usdt.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(toBN(2000).mul(toBN(1E6)), toBN(1E6));
+        await setBalance('usdt', primaryStrategy.address, '0');
+
+        await usdtAdaptor.withdraw(toBN(1900).mul(toBN(1E6)), 10000, {from:investor1});
+        await expect(usdt.balanceOf(investor1)).to.eventually.be.a.bignumber.equal(toBN(0));
+        await usdtAdaptor.withdraw(toBN(2000).mul(toBN(1E6)), 1000, {from:investor1});
+        await expect(usdt.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(toBN(0));
+        const investor_balance = await usdt.balanceOf(investor1);
+        await usdtAdaptor.withdraw(toBN(200).mul(toBN(1E6)), 100, {from:investor1});
+        await expect(usdt.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(investor_balance);
+        const investor_balance_2 = await usdt.balanceOf(investor1);
+
+        // withdrawal from loose assets in strategy
+        await primaryStrategy.forceClose(await primaryStrategy.activePosition(), {from: governance});
+        await usdtAdaptor.withdraw(toBN(200).mul(toBN(1E6)), 100, {from:investor1});
+        await expect(usdt.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(investor_balance_2);
+        await usdtAdaptor.withdraw(constants.MAX_UINT256, 100, {from:investor1});
+        await expect(usdt.balanceOf(investor1)).to.eventually.be.a.bignumber.closeTo(toBN('8000').mul(toBN(1E6)), toBN(1E6));
+
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(toBN(1E6));
+    })
+
+    it('Should report loss correctly part 2', async () => {
+        await setBalance('usdt', investor1, '10000');
+        await usdtAdaptor.deposit(toBN('10000').mul(toBN(1E6)), {from: investor1})
+        await primaryStrategy.setBorrowLimit(toBN('8000').mul(toBN(1E6)), {from: governance});
+        await usdtAdaptor.strategyHarvest(0, {from: governance});
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        await expect(usdt.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(toBN(2000).mul(toBN(1E6)), toBN(1E6));
+        await setBalance('usdt', primaryStrategy.address, '0');
+
+        await usdtAdaptor.withdraw(toBN(1900).mul(toBN(1E6)), 10000, {from:investor1});
+        await expect(usdt.balanceOf(investor1)).to.eventually.be.a.bignumber.equal(toBN(0));
+        await usdtAdaptor.withdraw(toBN(2000).mul(toBN(1E6)), 1000, {from:investor1});
+        await expect(usdt.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(toBN(0));
+        const investor_balance = await usdt.balanceOf(investor1);
+        await usdtAdaptor.withdraw(toBN(200).mul(toBN(1E6)), 100, {from:investor1});
+        await expect(usdt.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(investor_balance);
+        const investor_balance_2 = await usdt.balanceOf(investor1);
+
+        // withdrawal from active position
+        await usdtAdaptor.withdraw(toBN(1000).mul(toBN(1E6)), 100, {from:investor1});
+        await expect(usdt.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(investor_balance_2);
+        await usdtAdaptor.withdraw(constants.MAX_UINT256, 100, {from:investor1});
+        await expect(usdt.balanceOf(investor1)).to.eventually.be.a.bignumber.closeTo(toBN('8000').mul(toBN(1E6)), toBN(1E6));
+
+        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(toBN(1E6));
     })
   })
 })
