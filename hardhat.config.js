@@ -53,6 +53,7 @@ module.exports = {
     hardhat: {
       initialBaseFeePerGas: 325000000000,
       chainId: 43112, //!forkingData ? 43112 : undefined, //Only specify a chainId if we are not forking
+      allowUnlimitedContractSize: true,
       forking: forkingData
     },
     localhost: {
