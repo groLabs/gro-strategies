@@ -240,7 +240,7 @@ abstract contract BaseStrategy {
      *  value to be "safe".
      * @return The estimated total assets in this Strategy.
      */
-    function estimatedTotalAssets() public view virtual returns (uint256);
+    function estimatedTotalAssets() external view virtual returns (uint256);
 
     /*
      * @notice
@@ -251,9 +251,7 @@ abstract contract BaseStrategy {
      * @return True if the strategy is actively managing a position.
      */
     function isActive() public view returns (bool) {
-        return
-            vault.strategies(address(this)).debtRatio > 0 ||
-            estimatedTotalAssets() > 0;
+        return vault.strategies(address(this)).active;
     }
 
     /**
