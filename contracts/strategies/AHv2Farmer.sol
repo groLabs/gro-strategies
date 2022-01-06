@@ -3,7 +3,6 @@ pragma solidity 0.8.4;
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../BaseStrategy.sol";
-import "../common/Constants.sol";
 
 /*//////////////////////////
  *          INTERFACES
@@ -181,7 +180,7 @@ contract AHv2Farmer is BaseStrategy {
     address public immutable tokenB;
 
     // poolId for masterchef - can be commented out for non sushi spells
-    uint256 immutable poolId;
+    uint256 public immutable poolId;
 
     // Min amount of tokens to open/adjust positions or sell
     uint256 public minWant;

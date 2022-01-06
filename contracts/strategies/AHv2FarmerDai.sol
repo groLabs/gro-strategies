@@ -3,7 +3,6 @@ pragma solidity 0.8.4;
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../BaseStrategy.sol";
-import "../common/Constants.sol";
 
 /*//////////////////////////
  *          INTERFACES
@@ -196,6 +195,9 @@ contract AHv2FarmerDai is BaseStrategy {
     // second token in liquidity pool
     address public immutable tokenB;
 
+    // poolId for masterchef - can be commented out for non sushi spells
+    uint256 immutable public poolId;
+
     // Min amount of tokens to open/adjust positions or sell
     uint256 public minWant;
     // Amount of tokens to sell as a % of pool liq. depth
@@ -223,8 +225,6 @@ contract AHv2FarmerDai is BaseStrategy {
      *          EVENTS
      *//////////////////////////
 
-    // poolId for masterchef - can be commented out for non sushi spells
-    uint256 immutable poolId;
     event LogNewPositionOpened(
         uint256 indexed positionId,
         uint256[] price,
