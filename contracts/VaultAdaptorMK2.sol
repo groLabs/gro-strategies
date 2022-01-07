@@ -46,13 +46,7 @@ interface IStrategy {
 ///         - VaultAdaptor
 ///         - Strategies
 ///     - Debt ratios: Ratio in %BP of assets to invest in the underlying strategies of a vault
-contract VaultAdaptorMK2 is
-    Constants,
-    Whitelist,
-    IVaultMK2,
-    ERC20,
-    ReentrancyGuard
-{
+contract VaultAdaptorMK2 is Constants, Whitelist, IVaultMK2, ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public constant MAXIMUM_STRATEGIES = 5;
@@ -117,18 +111,9 @@ contract VaultAdaptorMK2 is
     );
     event LogUpdateWithdrawalQueue(address[] queue);
     event LogNewDebtRatio(address indexed strategy, uint256 debtRatio);
-    event LogStrategyUpdateMinDebtPerHarvest(
-        address indexed strategy,
-        uint256 minDebtPerHarvest
-    );
-    event LogStrategyUpdateMaxDebtPerHarvest(
-        address indexed strategy,
-        uint256 maxDebtPerHarvest
-    );
-    event LogStrategyMigrated(
-        address indexed newStrategy,
-        address indexed oldStrategy
-    );
+    event LogStrategyUpdateMinDebtPerHarvest(address indexed strategy, uint256 minDebtPerHarvest);
+    event LogStrategyUpdateMaxDebtPerHarvest(address indexed strategy, uint256 maxDebtPerHarvest);
+    event LogStrategyMigrated(address indexed newStrategy, address indexed oldStrategy);
     event LogStrategyRevoked(address indexed strategy);
     event LogStrategyRemovedFromQueue(address indexed strategy);
     event LogStrategyAddedToQueue(address indexed strategy);
@@ -144,19 +129,8 @@ contract VaultAdaptorMK2 is
     event LogNewStrategyHarvest(bool loss, uint256 change);
     event LogNewAllowance(address user, uint256 amount);
     event LogAllowanceStatus(bool status);
-    event LogDeposit(
-        address indexed from,
-        uint256 _amount,
-        uint256 shares,
-        uint256 allowance
-    );
-    event LogWithdrawal(
-        address indexed from,
-        uint256 value,
-        uint256 shares,
-        uint256 totalLoss,
-        uint256 allowance
-    );
+    event LogDeposit(address indexed from, uint256 _amount, uint256 shares, uint256 allowance);
+    event LogWithdrawal(address indexed from, uint256 value, uint256 shares, uint256 totalLoss, uint256 allowance);
 
     constructor(
         address _token,
@@ -164,13 +138,7 @@ contract VaultAdaptorMK2 is
         address _bouncer
     )
         ERC20(
-            string(
-                abi.encodePacked(
-                    "Gro ",
-                    IERC20Detailed(_token).symbol(),
-                    " Lab"
-                )
-            ),
+            string(abi.encodePacked("Gro ", IERC20Detailed(_token).symbol(), " Lab")),
             string(abi.encodePacked("gro", IERC20Detailed(_token).symbol()))
         )
     {
@@ -229,10 +197,7 @@ contract VaultAdaptorMK2 is
     /// @param _user user to set allowance for
     /// @param _amount new allowance amount
     function setUserAllowance(address _user, uint256 _amount) external {
-        require(
-            msg.sender == bouncer,
-            "setUserAllowance: msg.sender != bouncer"
-        );
+        require(msg.sender == bouncer, "setUserAllowance: msg.sender != bouncer");
         if (!claimed[_user]) {
             userAllowance[_user] += _amount * (10**_decimals) + BASE_ALLOWANCE;
             claimed[_user] = true;
@@ -262,12 +227,7 @@ contract VaultAdaptorMK2 is
 
     /// @notice Get total amount invested in strategy
     /// @param _index index of strategy
-    function getStrategyAssets(uint256 _index)
-        external
-        view
-        override
-        returns (uint256 amount)
-    {
+    function getStrategyAssets(uint256 _index) external view override returns (uint256 amount) {
         return _getStrategyTotalAssets(_index);
     }
 
@@ -275,24 +235,16 @@ contract VaultAdaptorMK2 is
     /// @param _amount user deposit amount
     function deposit(uint256 _amount) external nonReentrant returns (uint256) {
         require(_amount > 0, "deposit: _amount !> 0");
-        require(
-            _totalAssets() + _amount <= depositLimit,
-            "deposit: !depositLimit"
-        );
+        require(_totalAssets() + _amount <= depositLimit, "deposit: !depositLimit");
         uint256 _allowance = 0;
         if (allowance) {
             _allowance = userAllowance[msg.sender];
             if (!claimed[msg.sender]) {
-                require(_amount <= BASE_ALLOWANCE, "deposit: !userAllowance");
-                _allowance = BASE_ALLOWANCE - _amount;
+                _allowance = BASE_ALLOWANCE;
                 claimed[msg.sender] = true;
-            } else {
-                require(
-                    userAllowance[msg.sender] >= _amount,
-                    "deposit: !userAllowance"
-                );
-                _allowance = userAllowance[msg.sender] - _amount;
             }
+            require(_allowance >= _amount, "deposit: !userAllowance");
+            _allowance = _allowance - _amount;
             userAllowance[msg.sender] = _allowance;
         }
 
@@ -308,10 +260,7 @@ contract VaultAdaptorMK2 is
     /// @notice Mint shares for user based on deposit amount
     /// @param _to recipient
     /// @param _amount amount of want deposited
-    function _issueSharesForAmount(address _to, uint256 _amount)
-        internal
-        returns (uint256)
-    {
+    function _issueSharesForAmount(address _to, uint256 _amount) internal returns (uint256) {
         uint256 shares;
         uint256 _totalSupply = totalSupply();
         if (_totalSupply > 0) {
@@ -329,12 +278,7 @@ contract VaultAdaptorMK2 is
     /// @notice Check if underlying strategy needs to be harvested
     /// @param _index Index of stratey
     /// @param _callCost Cost of harvest in underlying token
-    function strategyHarvestTrigger(uint256 _index, uint256 _callCost)
-        external
-        view
-        override
-        returns (bool)
-    {
+    function strategyHarvestTrigger(uint256 _index, uint256 _callCost) external view override returns (bool) {
         require(_index < strategyLength(), "invalid index");
         return IStrategy(withdrawalQueue[_index]).harvestTrigger(_callCost);
     }
@@ -343,11 +287,7 @@ contract VaultAdaptorMK2 is
     /// @param _index Index of strategy
     /// @dev Any Gains/Losses incurred by harvesting a streategy is accounted for in the vault adapter
     ///     and reported back to the Controller, which in turn updates current system total assets.
-    function strategyHarvest(uint256 _index)
-        external
-        nonReentrant
-        onlyWhitelist
-    {
+    function strategyHarvest(uint256 _index) external nonReentrant onlyWhitelist {
         require(_index < strategyLength(), "invalid index");
         IStrategy _strategy = IStrategy(withdrawalQueue[_index]);
         uint256 beforeAssets = _totalAssets();
@@ -367,13 +307,10 @@ contract VaultAdaptorMK2 is
 
     /// @notice Calculate how much profit is currently locked
     function _calculateLockedProfit() internal view returns (uint256) {
-        uint256 lockedFundsRatio = (block.timestamp - lastReport) *
-            releaseFactor;
+        uint256 lockedFundsRatio = (block.timestamp - lastReport) * releaseFactor;
         if (lockedFundsRatio < DEFAULT_DECIMALS_FACTOR) {
             uint256 _lockedProfit = lockedProfit;
-            return
-                _lockedProfit -
-                ((lockedFundsRatio * _lockedProfit) / DEFAULT_DECIMALS_FACTOR);
+            return _lockedProfit - ((lockedFundsRatio * _lockedProfit) / DEFAULT_DECIMALS_FACTOR);
         } else {
             return 0;
         }
@@ -395,10 +332,7 @@ contract VaultAdaptorMK2 is
     /// @notice Update the withdrawal queue
     /// @param _queue New withdrawal queue order
     function setWithdrawalQueue(address[] calldata _queue) external onlyOwner {
-        require(
-            _queue.length <= MAXIMUM_STRATEGIES,
-            "setWithdrawalQueue: > MAXIMUM_STRATEGIES"
-        );
+        require(_queue.length <= MAXIMUM_STRATEGIES, "setWithdrawalQueue: > MAXIMUM_STRATEGIES");
         for (uint256 i; i < MAXIMUM_STRATEGIES; i++) {
             if (i >= _queue.length) {
                 withdrawalQueue[i] = address(0);
@@ -425,15 +359,9 @@ contract VaultAdaptorMK2 is
     function setDebtRatio(address _strategy, uint256 _debtRatio) external {
         // If a strategy isnt the source of the call
         require(strategies[_strategy].active, "setDebtRatio: !active");
-        require(
-            msg.sender == owner() || whitelist[msg.sender],
-            "setDebtRatio: !whitelist"
-        );
+        require(msg.sender == owner() || whitelist[msg.sender], "setDebtRatio: !whitelist");
         _setDebtRatio(_strategy, _debtRatio);
-        require(
-            debtRatio <= PERCENTAGE_DECIMAL_FACTOR,
-            "setDebtRatio: debtRatio > 100%"
-        );
+        require(debtRatio <= PERCENTAGE_DECIMAL_FACTOR, "setDebtRatio: debtRatio > 100%");
     }
 
     /// @notice Set new strategy debt ratios
@@ -441,14 +369,8 @@ contract VaultAdaptorMK2 is
     /// @dev Can be used to forecfully change the debt ratios of the underlying strategies
     ///     by whitelisted parties/owner
     function setDebtRatios(uint256[] memory _strategyDebtRatios) external {
-        require(
-            msg.sender == owner() || whitelist[msg.sender],
-            "setDebtRatios: !whitelist"
-        );
-        require(
-            _strategyDebtRatios.length <= MAXIMUM_STRATEGIES,
-            "setDebtRatios: > MAXIMUM_STRATEGIES"
-        );
+        require(msg.sender == owner() || whitelist[msg.sender], "setDebtRatios: !whitelist");
+        require(_strategyDebtRatios.length <= MAXIMUM_STRATEGIES, "setDebtRatios: > MAXIMUM_STRATEGIES");
         address _strategy;
         uint256 _ratio;
         for (uint256 i; i < MAXIMUM_STRATEGIES; i++) {
@@ -460,10 +382,7 @@ contract VaultAdaptorMK2 is
             }
             _setDebtRatio(_strategy, _ratio);
         }
-        require(
-            debtRatio <= PERCENTAGE_DECIMAL_FACTOR,
-            "setDebtRatios: debtRatio > 100%"
-        );
+        require(debtRatio <= PERCENTAGE_DECIMAL_FACTOR, "setDebtRatios: debtRatio > 100%");
     }
 
     /// @notice Add a new strategy to the vault adapter
@@ -477,24 +396,12 @@ contract VaultAdaptorMK2 is
         uint256 _minDebtPerHarvest,
         uint256 _maxDebtPerHarvest
     ) external onlyOwner {
-        require(
-            withdrawalQueue[MAXIMUM_STRATEGIES - 1] == ZERO_ADDRESS,
-            "addStrategy: > MAXIMUM_STRATEGIES"
-        );
+        require(withdrawalQueue[MAXIMUM_STRATEGIES - 1] == ZERO_ADDRESS, "addStrategy: > MAXIMUM_STRATEGIES");
         require(_strategy != ZERO_ADDRESS, "addStrategy: address(0x)");
         require(!strategies[_strategy].active, "addStrategy: !activated");
-        require(
-            address(this) == IStrategy(_strategy).vault(),
-            "addStrategy: !vault"
-        );
-        require(
-            debtRatio + _debtRatio <= PERCENTAGE_DECIMAL_FACTOR,
-            "addStrategy: debtRatio > 100%"
-        );
-        require(
-            _minDebtPerHarvest <= _maxDebtPerHarvest,
-            "addStrategy: min > max"
-        );
+        require(address(this) == IStrategy(_strategy).vault(), "addStrategy: !vault");
+        require(debtRatio + _debtRatio <= PERCENTAGE_DECIMAL_FACTOR, "addStrategy: debtRatio > 100%");
+        require(_minDebtPerHarvest <= _maxDebtPerHarvest, "addStrategy: min > max");
 
         StrategyParams storage newStrat = strategies[_strategy];
         newStrat.activation = block.timestamp;
@@ -504,12 +411,7 @@ contract VaultAdaptorMK2 is
         newStrat.maxDebtPerHarvest = _maxDebtPerHarvest;
         newStrat.lastReport = block.timestamp;
 
-        emit LogStrategyAdded(
-            _strategy,
-            _debtRatio,
-            _minDebtPerHarvest,
-            _maxDebtPerHarvest
-        );
+        emit LogStrategyAdded(_strategy, _debtRatio, _minDebtPerHarvest, _maxDebtPerHarvest);
 
         debtRatio += _debtRatio;
 
@@ -520,14 +422,8 @@ contract VaultAdaptorMK2 is
     /// @notice Set a new min debt equired for assets to be made available to the strategy at harvest
     /// @param _strategy strategy address
     /// @param _minDebtPerHarvest new min debt
-    function updateStrategyMinDebtPerHarvest(
-        address _strategy,
-        uint256 _minDebtPerHarvest
-    ) external onlyOwner {
-        require(
-            strategies[_strategy].activation > 0,
-            "updateStrategyMinDebtPerHarvest: !activated"
-        );
+    function updateStrategyMinDebtPerHarvest(address _strategy, uint256 _minDebtPerHarvest) external onlyOwner {
+        require(strategies[_strategy].activation > 0, "updateStrategyMinDebtPerHarvest: !activated");
         require(
             strategies[_strategy].maxDebtPerHarvest >= _minDebtPerHarvest,
             "updateStrategyMinDebtPerHarvest: min > max"
@@ -540,14 +436,8 @@ contract VaultAdaptorMK2 is
     /// @notice Set a new max debt that can be made avilable to the stragey at harvest
     /// @param _strategy strategy address
     /// @param _maxDebtPerHarvest new max debt
-    function updateStrategyMaxDebtPerHarvest(
-        address _strategy,
-        uint256 _maxDebtPerHarvest
-    ) external onlyOwner {
-        require(
-            strategies[_strategy].activation > 0,
-            "updateStrategyMaxDebtPerHarvest: !activated"
-        );
+    function updateStrategyMaxDebtPerHarvest(address _strategy, uint256 _maxDebtPerHarvest) external onlyOwner {
+        require(strategies[_strategy].activation > 0, "updateStrategyMaxDebtPerHarvest: !activated");
         require(
             strategies[_strategy].minDebtPerHarvest <= _maxDebtPerHarvest,
             "updateStrategyMaxDebtPerHarvest: min > max"
@@ -561,23 +451,11 @@ contract VaultAdaptorMK2 is
     ///     active strategies
     /// @param _oldVersion address of old strategy
     /// @param _newVersion address of new strategy
-    function migrateStrategy(address _oldVersion, address _newVersion)
-        external
-        onlyOwner
-    {
+    function migrateStrategy(address _oldVersion, address _newVersion) external onlyOwner {
         require(_newVersion != ZERO_ADDRESS, "migrateStrategy: 0x");
-        require(
-            strategies[_oldVersion].activation > 0,
-            "migrateStrategy: oldVersion !activated"
-        );
-        require(
-            strategies[_oldVersion].active,
-            "migrateStrategy: oldVersion !active"
-        );
-        require(
-            strategies[_newVersion].activation == 0,
-            "migrateStrategy: newVersion activated"
-        );
+        require(strategies[_oldVersion].activation > 0, "migrateStrategy: oldVersion !activated");
+        require(strategies[_oldVersion].active, "migrateStrategy: oldVersion !active");
+        require(strategies[_newVersion].activation == 0, "migrateStrategy: newVersion activated");
 
         StrategyParams storage _strategy = strategies[_oldVersion];
 
@@ -615,35 +493,20 @@ contract VaultAdaptorMK2 is
 
     /// @notice Remove strategy from vault adapter, called by strategy on emergencyExit
     function revokeStrategy() external {
-        require(
-            strategies[msg.sender].active,
-            "revokeStrategy: strategy not active"
-        );
+        require(strategies[msg.sender].active, "revokeStrategy: strategy not active");
         _revokeStrategy(msg.sender);
     }
 
     /// @notice Manually add a strategy to the withdrawal queue
     /// @param _strategy target strategy to add
     function addStrategyToQueue(address _strategy) external {
-        require(
-            msg.sender == owner() || whitelist[msg.sender],
-            "addStrategyToQueue: !owner|whitelist"
-        );
-        require(
-            strategies[_strategy].activation > 0,
-            "addStrategyToQueue: !activated"
-        );
-        require(
-            withdrawalQueue[MAXIMUM_STRATEGIES - 1] == ZERO_ADDRESS,
-            "addStrategyToQueue: queue full"
-        );
+        require(msg.sender == owner() || whitelist[msg.sender], "addStrategyToQueue: !owner|whitelist");
+        require(strategies[_strategy].activation > 0, "addStrategyToQueue: !activated");
+        require(withdrawalQueue[MAXIMUM_STRATEGIES - 1] == ZERO_ADDRESS, "addStrategyToQueue: queue full");
         for (uint256 i; i < MAXIMUM_STRATEGIES; i++) {
             address strategy = withdrawalQueue[i];
             if (strategy == ZERO_ADDRESS) break;
-            require(
-                _strategy != strategy,
-                "addStrategyToQueue: strategy already in queue"
-            );
+            require(_strategy != strategy, "addStrategyToQueue: strategy already in queue");
         }
         withdrawalQueue[MAXIMUM_STRATEGIES - 1] = _strategy;
         _organizeWithdrawalQueue();
@@ -653,10 +516,7 @@ contract VaultAdaptorMK2 is
     /// @notice Manually remove a strategy to the withdrawal queue
     /// @param _strategy Target strategy to remove
     function removeStrategyFromQueue(address _strategy) external {
-        require(
-            msg.sender == owner() || whitelist[msg.sender],
-            "removeStrategyFromQueue: !owner|whitelist"
-        );
+        require(msg.sender == owner() || whitelist[msg.sender], "removeStrategyFromQueue: !owner|whitelist");
         for (uint256 i; i < MAXIMUM_STRATEGIES; i++) {
             if (withdrawalQueue[i] == _strategy) {
                 withdrawalQueue[i] = ZERO_ADDRESS;
@@ -669,11 +529,7 @@ contract VaultAdaptorMK2 is
 
     /// @notice Check how much credits are available for the strategy
     /// @param _strategy Target strategy
-    function creditAvailable(address _strategy)
-        external
-        view
-        returns (uint256)
-    {
+    function creditAvailable(address _strategy) external view returns (uint256) {
         return _creditAvailable(_strategy);
     }
 
@@ -687,28 +543,19 @@ contract VaultAdaptorMK2 is
     ///     the vault has
     /// @param _strategy target strategy
     /// @dev called during harvest
-    function _creditAvailable(address _strategy)
-        internal
-        view
-        returns (uint256)
-    {
+    function _creditAvailable(address _strategy) internal view returns (uint256) {
         StrategyParams memory _strategyData = strategies[_strategy];
         uint256 vaultTotalAssets = _totalAssets();
-        uint256 vaultDebtLimit = (debtRatio * vaultTotalAssets) /
-            PERCENTAGE_DECIMAL_FACTOR;
+        uint256 vaultDebtLimit = (debtRatio * vaultTotalAssets) / PERCENTAGE_DECIMAL_FACTOR;
         uint256 vaultTotalDebt = totalDebt;
-        uint256 strategyDebtLimit = (_strategyData.debtRatio *
-            vaultTotalAssets) / PERCENTAGE_DECIMAL_FACTOR;
+        uint256 strategyDebtLimit = (_strategyData.debtRatio * vaultTotalAssets) / PERCENTAGE_DECIMAL_FACTOR;
         uint256 strategyTotalDebt = _strategyData.totalDebt;
         uint256 strategyMinDebtPerHarvest = _strategyData.minDebtPerHarvest;
         uint256 strategyMaxDebtPerHarvest = _strategyData.maxDebtPerHarvest;
 
         IERC20 _token = IERC20(token);
 
-        if (
-            strategyDebtLimit <= strategyTotalDebt ||
-            vaultDebtLimit <= vaultTotalDebt
-        ) {
+        if (strategyDebtLimit <= strategyTotalDebt || vaultDebtLimit <= vaultTotalDebt) {
             return 0;
         }
 
@@ -740,14 +587,9 @@ contract VaultAdaptorMK2 is
 
     /// @notice Amount by which a strategy exceeds its current debt limit
     /// @param _strategy target strategy
-    function _debtOutstanding(address _strategy)
-        internal
-        view
-        returns (uint256)
-    {
+    function _debtOutstanding(address _strategy) internal view returns (uint256) {
         StrategyParams storage strategy = strategies[_strategy];
-        uint256 strategyDebtLimit = (strategy.debtRatio * _totalAssets()) /
-            PERCENTAGE_DECIMAL_FACTOR;
+        uint256 strategyDebtLimit = (strategy.debtRatio * _totalAssets()) / PERCENTAGE_DECIMAL_FACTOR;
         uint256 strategyTotalDebt = strategy.totalDebt;
 
         if (strategyTotalDebt <= strategyDebtLimit) {
@@ -759,11 +601,7 @@ contract VaultAdaptorMK2 is
 
     /// @notice Amount of debt the strategy has to pay back to the vault at next harvest
     /// @param _strategy target strategy
-    function debtOutstanding(address _strategy)
-        external
-        view
-        returns (uint256)
-    {
+    function debtOutstanding(address _strategy) external view returns (uint256) {
         return _debtOutstanding(_strategy);
     }
 
@@ -793,21 +631,12 @@ contract VaultAdaptorMK2 is
     ///     The withdrawamount if set in shares and calculated in the underlying token the vault holds.
     /// @param _shares Amount to withdraw in shares
     /// @param _maxLoss Max accepted loss when withdrawing from strategy
-    function withdraw(uint256 _shares, uint256 _maxLoss)
-        external
-        nonReentrant
-        returns (uint256)
-    {
-        require(
-            _maxLoss <= PERCENTAGE_DECIMAL_FACTOR,
-            "withdraw: _maxLoss > 100%"
-        );
+    function withdraw(uint256 _shares, uint256 _maxLoss) external nonReentrant returns (uint256) {
+        require(_maxLoss <= PERCENTAGE_DECIMAL_FACTOR, "withdraw: _maxLoss > 100%");
         require(_shares > 0, "withdraw: _shares == 0");
 
         uint256 userBalance = balanceOf(msg.sender);
-        uint256 shares = _shares == type(uint256).max
-            ? balanceOf(msg.sender)
-            : _shares;
+        uint256 shares = _shares == type(uint256).max ? balanceOf(msg.sender) : _shares;
         require(shares <= userBalance, "withdraw, shares > userBalance");
         uint256 value = _shareValue(shares);
 
@@ -833,8 +662,7 @@ contract VaultAdaptorMK2 is
 
                 uint256 loss = IStrategy(_strategy).withdraw(amountNeeded);
                 // Amount withdraw from strategy
-                uint256 withdrawn = _token.balanceOf(address(this)) -
-                    vaultBalance;
+                uint256 withdrawn = _token.balanceOf(address(this)) - vaultBalance;
 
                 // Handle the loss if any
                 if (loss > 0) {
@@ -855,9 +683,7 @@ contract VaultAdaptorMK2 is
             }
 
             require(
-                totalLoss <=
-                    (_maxLoss * (value + totalLoss)) /
-                        PERCENTAGE_DECIMAL_FACTOR,
+                totalLoss <= (_maxLoss * (value + totalLoss)) / PERCENTAGE_DECIMAL_FACTOR,
                 "withdraw: loss > maxloss"
             );
         }
@@ -944,17 +770,12 @@ contract VaultAdaptorMK2 is
         if (totalAvailable < credit) {
             _token.safeTransfer(msg.sender, credit - totalAvailable);
         } else if (totalAvailable > credit) {
-            _token.safeTransferFrom(
-                msg.sender,
-                address(this),
-                totalAvailable - credit
-            );
+            _token.safeTransferFrom(msg.sender, address(this), totalAvailable - credit);
         }
 
         // Profit is locked and gradually released per block
         // NOTE: compute current locked profit and replace with sum of current and new
-        uint256 lockedProfitBeforeLoss = _calculateLockedProfit() +
-            _calcFees(_gain);
+        uint256 lockedProfitBeforeLoss = _calculateLockedProfit() + _calcFees(_gain);
         if (lockedProfitBeforeLoss > _loss) {
             lockedProfit = lockedProfitBeforeLoss - _loss;
         } else {
@@ -1003,21 +824,13 @@ contract VaultAdaptorMK2 is
 
     /// @notice Get current enstimated amount of assets in strategy
     /// @param _index index of strategy
-    function _getStrategyEstimatedTotalAssets(uint256 _index)
-        internal
-        view
-        returns (uint256)
-    {
+    function _getStrategyEstimatedTotalAssets(uint256 _index) internal view returns (uint256) {
         return IStrategy(withdrawalQueue[_index]).estimatedTotalAssets();
     }
 
     /// @notice Get strategy totalDebt
     /// @param _index index of strategy
-    function _getStrategyTotalAssets(uint256 _index)
-        internal
-        view
-        returns (uint256)
-    {
+    function _getStrategyTotalAssets(uint256 _index) internal view returns (uint256) {
         StrategyParams storage strategy = strategies[withdrawalQueue[_index]];
         return strategy.totalDebt;
     }

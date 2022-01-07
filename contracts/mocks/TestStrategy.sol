@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../BaseStrategy.sol";
 
-
 /*
  * This Strategy serves as both a mock Strategy for testing, and an example
  * for integrators on how to use BaseStrategy
@@ -14,14 +13,13 @@ import "../BaseStrategy.sol";
 
 contract TestStrategy is BaseStrategy {
     bool public doReentrancy;
-    bool public ammStatus = true;
     bool noLoss = false;
     bool toMuchGain = false;
     bool toMuchLoss = false;
 
     constructor(address _vault) BaseStrategy(_vault) {}
 
-    function name() external override pure returns (string memory) {
+    function name() external pure override returns (string memory) {
         return "TestStrategy";
     }
 
@@ -35,7 +33,7 @@ contract TestStrategy is BaseStrategy {
         doReentrancy = !doReentrancy;
     }
 
-    function estimatedTotalAssets() public override view returns (uint256) {
+    function estimatedTotalAssets() public view override returns (uint256) {
         // For mock, this is just everything we have
         return want.balanceOf(address(this));
     }
@@ -91,7 +89,12 @@ contract TestStrategy is BaseStrategy {
         noLoss = true;
     }
 
-    function _liquidatePosition(uint256 _amountNeeded) internal view override returns (uint256 liquidatedAmount, uint256 loss) {
+    function _liquidatePosition(uint256 _amountNeeded)
+        internal
+        view
+        override
+        returns (uint256 liquidatedAmount, uint256 loss)
+    {
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
         uint256 totalAssets = want.balanceOf(address(this));
         if (_amountNeeded > totalAssets) {
@@ -123,7 +126,7 @@ contract TestStrategy is BaseStrategy {
         // Nothing needed here because no additional tokens/tokenized positions for mock
     }
 
-    function _protectedTokens() internal override pure returns (address[] memory) {
+    function _protectedTokens() internal pure override returns (address[] memory) {
         return new address[](0); // No additional tokens/tokenized positions for mock
     }
 
@@ -141,13 +144,5 @@ contract TestStrategy is BaseStrategy {
     function tendTrigger(uint256 callCost) public pure override returns (bool) {
         if (callCost > 0) return false;
         return true;
-    }
-
-    function setAmmCheck(bool status) external {
-        ammStatus = status;
-    }
-
-    function ammCheck(address _start, uint256 _minAmount) external view override returns (bool) {
-        return ammStatus;
     }
 }

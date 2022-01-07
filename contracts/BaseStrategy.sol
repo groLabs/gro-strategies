@@ -20,10 +20,7 @@ interface VaultAPI {
 
     function token() external view returns (address);
 
-    function strategies(address _strategy)
-        external
-        view
-        returns (StrategyParams memory);
+    function strategies(address _strategy) external view returns (StrategyParams memory);
 
     /**
      * View how much the Vault would increase this Strategy's borrow limit,
@@ -101,12 +98,7 @@ interface StrategyAPI {
 
     function harvest() external;
 
-    event Harvested(
-        uint256 profit,
-        uint256 loss,
-        uint256 debtPayment,
-        uint256 debtOutstanding
-    );
+    event Harvested(uint256 profit, uint256 loss, uint256 debtPayment, uint256 debtOutstanding);
 }
 
 /**
@@ -135,12 +127,7 @@ abstract contract BaseStrategy {
     IERC20 public want;
 
     // So indexers can keep track of this
-    event Harvested(
-        uint256 profit,
-        uint256 loss,
-        uint256 debtPayment,
-        uint256 debtOutstanding
-    );
+    event Harvested(uint256 profit, uint256 loss, uint256 debtPayment, uint256 debtOutstanding);
     event UpdatedKeeper(address newKeeper);
     event UpdatedRewards(address rewards);
     event UpdatedMinReportDelay(uint256 delay);
@@ -213,10 +200,7 @@ abstract contract BaseStrategy {
      * @param _delay The minimum number of seconds to wait between harvests.
      */
     function setMinReportDelay(uint256 _delay) external onlyAuthorized {
-        require(
-            _delay < maxReportDelay,
-            "setMinReportDelay: _delay > maxReportDelay"
-        );
+        require(_delay < maxReportDelay, "setMinReportDelay: _delay > maxReportDelay");
         minReportDelay = _delay;
         emit UpdatedMinReportDelay(_delay);
     }
@@ -233,10 +217,7 @@ abstract contract BaseStrategy {
      * @param _delay The maximum number of seconds to wait between harvests.
      */
     function setMaxReportDelay(uint256 _delay) external onlyAuthorized {
-        require(
-            _delay > minReportDelay,
-            "setMaxReportDelay: _delay < minReportDelay"
-        );
+        require(_delay > minReportDelay, "setMaxReportDelay: _delay < minReportDelay");
         maxReportDelay = _delay;
         emit UpdatedMaxReportDelay(_delay);
     }
@@ -268,11 +249,7 @@ abstract contract BaseStrategy {
      * @param _debtThreshold How big of a loss this Strategy may carry without
      * being required to report to the Vault.
      */
-    function setDebtThreshold(uint256 _debtThreshold)
-        external
-        virtual
-        onlyAuthorized
-    {
+    function setDebtThreshold(uint256 _debtThreshold) external virtual onlyAuthorized {
         debtThreshold = _debtThreshold;
         emit UpdatedDebtThreshold(_debtThreshold);
     }
@@ -320,9 +297,7 @@ abstract contract BaseStrategy {
      * @return True if the strategy is actively managing a position.
      */
     function isActive() public view returns (bool) {
-        return
-            vault.strategies(address(this)).debtRatio > 0 ||
-            estimatedTotalAssets() > 0;
+        return vault.strategies(address(this)).debtRatio > 0 || estimatedTotalAssets() > 0;
     }
 
     /**
@@ -449,12 +424,7 @@ abstract contract BaseStrategy {
      * @param _callCost The keeper's estimated cast cost to call `harvest()`.
      * @return `true` if `harvest()` should be called, `false` otherwise.
      */
-    function harvestTrigger(uint256 _callCost)
-        public
-        view
-        virtual
-        returns (bool)
-    {
+    function harvestTrigger(uint256 _callCost) public view virtual returns (bool) {
         StrategyParams memory params = vault.strategies(address(this));
 
         // Should not trigger if Strategy is not activated
@@ -514,9 +484,7 @@ abstract contract BaseStrategy {
             // Free up as much capital as possible
             uint256 totalAssets = estimatedTotalAssets();
             // NOTE: use the larger of total assets or debt outstanding to book losses properly
-            (debtPayment, loss) = _liquidatePosition(
-                totalAssets > debtOutstanding ? totalAssets : debtOutstanding
-            );
+            (debtPayment, loss) = _liquidatePosition(totalAssets > debtOutstanding ? totalAssets : debtOutstanding);
             // NOTE: take up any remainder here as profit
             if (debtPayment > debtOutstanding) {
                 profit = debtPayment - debtOutstanding;
@@ -611,11 +579,7 @@ abstract contract BaseStrategy {
      *      return protected;
      *    }
      */
-    function _protectedTokens()
-        internal
-        view
-        virtual
-        returns (address[] memory);
+    function _protectedTokens() internal view virtual returns (address[] memory);
 
     /**
      * @notice
@@ -639,21 +603,8 @@ abstract contract BaseStrategy {
         require(_token != address(vault), "sweep: !shares");
 
         address[] memory protectedTokens = _protectedTokens();
-        for (uint256 i; i < protectedTokens.length; i++)
-            require(_token != protectedTokens[i], "sweep: !protected");
+        for (uint256 i; i < protectedTokens.length; i++) require(_token != protectedTokens[i], "sweep: !protected");
 
-        IERC20(_token).safeTransfer(
-            _owner(),
-            IERC20(_token).balanceOf(address(this))
-        );
-    }
-
-    function ammCheck(address _start, uint256 _minAmount)
-        external
-        view
-        virtual
-        returns (bool)
-    {
-        return true;
+        IERC20(_token).safeTransfer(_owner(), IERC20(_token).balanceOf(address(this)));
     }
 }

@@ -227,7 +227,7 @@ contract AHLender is BaseStrategy {
             uint256 amountToFree = _profit + _debtPayment;
             if (amountToFree > 0 && looseAssets < amountToFree) {
                 //withdraw what we can withdraw
-                _withdrawSome(amountToFree + looseAssets);
+                _withdrawSome(amountToFree - looseAssets);
                 uint256 newLoose = want.balanceOf(address(this));
 
                 //if we dont have enough money adjust _debtOutstanding and only change profit if needed
@@ -248,7 +248,7 @@ contract AHLender is BaseStrategy {
             if (amountToFree > 0 && looseAssets < amountToFree) {
                 //withdraw what we can withdraw
 
-                _withdrawSome(amountToFree + looseAssets);
+                _withdrawSome(amountToFree - looseAssets);
                 uint256 newLoose = want.balanceOf(address(this));
 
                 if (newLoose < amountToFree) {
@@ -302,7 +302,7 @@ contract AHLender is BaseStrategy {
         }
         uint256 newBalance = want.balanceOf(address(this));
 
-        return newBalance + balanceBefore;
+        return newBalance - balanceBefore;
     }
 
     function _liquidatePosition(uint256 _amountNeeded)
