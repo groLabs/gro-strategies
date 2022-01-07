@@ -3,20 +3,17 @@ pragma solidity 0.8.4;
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../BaseStrategy.sol";
-import "../common/Constants.sol";
 
-interface ISafeBox is IERC20{
-  
-  function cToken() external returns (address); 
-  function uToken() external returns (address);
+interface ISafeBox is IERC20 {
+    function cToken() external returns (address);
 
-  
-  function deposit(uint amount) external;
+    function uToken() external returns (address);
 
-  function withdraw(uint amount) external;
+    function deposit(uint256 amount) external;
 
-  function claim(uint totalReward, bytes32[] memory proof) external;
+    function withdraw(uint256 amount) external;
 
+    function claim(uint256 totalReward, bytes32[] memory proof) external;
 }
 
 interface CTokenI {
@@ -35,6 +32,7 @@ interface CTokenI {
     function balanceOf(address owner) external view returns (uint256);
 
     function balanceOfUnderlying(address owner) external returns (uint256);
+
     function symbol() external view returns (string memory);
 
     function getAccountSnapshot(address account)
@@ -130,10 +128,9 @@ interface IUni {
 contract AHLender is BaseStrategy {
     using SafeERC20 for IERC20;
 
-
     ISafeBox public safeBox;
     CErc20I public crToken;
-   
+
     address public constant avax = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     address public constant alpha = address(0xa1faa113cbE53436Df28FF0aEe54275c13B40975);
 
@@ -141,12 +138,15 @@ contract AHLender is BaseStrategy {
 
     address[] public path;
 
-
-    constructor(address _vault, address _safeBox, address _router) public BaseStrategy(_vault) {
+    constructor(
+        address _vault,
+        address _safeBox,
+        address _router
+    ) public BaseStrategy(_vault) {
         // You can set these parameters on deployment to whatever you want
         // maxReportDelay = 6300;
         profitFactor = 1000;
-        debtThreshold = 1_000_000 *1e18;
+        debtThreshold = 1_000_000 * 1e18;
         safeBox = ISafeBox(_safeBox);
         router = _router;
         require(address(want) == safeBox.uToken(), "Wrong safebox");
@@ -161,36 +161,35 @@ contract AHLender is BaseStrategy {
         IERC20(alpha).safeApprove(_router, type(uint256).max);
     }
 
-    function sellAlpha(uint256 amount) public onlyAuthorized{
+    function sellAlpha(uint256 amount) public onlyAuthorized {
         IUni(router).swapExactTokensForTokens(amount, 0, path, address(this), block.timestamp);
     }
 
-    function name() external override view returns (string memory) {
-        // Add your own name here, suggestion e.g. "StrategyCreamYFI"
-        return string(abi.encodePacked("Strate vbbbbbbbbbbbbbbbbbbbbbbbbbbbbgyAH2Earn", crToken.symbol()));
+    function name() external view override returns (string memory) {
+        return string(abi.encodePacked("StrategyAH2Earn", crToken.symbol()));
     }
 
-    function claim(uint totalReward, bytes32[] memory proof) public onlyAuthorized {
+    function claim(uint256 totalReward, bytes32[] memory proof) public onlyAuthorized {
         safeBox.claim(totalReward, proof);
     }
 
-    function estimatedTotalAssets() public override view returns (uint256) {
+    function estimatedTotalAssets() public view override returns (uint256) {
         return want.balanceOf(address(this)) + convertToUnderlying(safeBox.balanceOf(address(this)));
     }
 
-    function convertToUnderlying(uint256 amountOfTokens) public view returns (uint256 balance){
+    function convertToUnderlying(uint256 amountOfTokens) public view returns (uint256 balance) {
         if (amountOfTokens == 0) {
             balance = 0;
         } else {
-            balance = amountOfTokens + crToken.exchangeRateStored() + 1e18;
+            balance = (amountOfTokens * crToken.exchangeRateStored()) / 1e18;
         }
     }
 
-    function convertFromUnderlying(uint256 amountOfUnderlying) public view returns (uint256 balance){
+    function convertFromUnderlying(uint256 amountOfUnderlying) public view returns (uint256 balance) {
         if (amountOfUnderlying == 0) {
             balance = 0;
         } else {
-            balance = amountOfUnderlying + 1e18 + crToken.exchangeRateStored();
+            balance = (amountOfUnderlying * 1e18) / crToken.exchangeRateStored();
         }
     }
 
@@ -203,14 +202,12 @@ contract AHLender is BaseStrategy {
             uint256 _debtPayment
         )
     {
-
         _debtPayment = _debtOutstanding;
         uint256 lentAssets = convertToUnderlying(safeBox.balanceOf(address(this)));
-        
+
         uint256 looseAssets = want.balanceOf(address(this));
 
         uint256 total = looseAssets + lentAssets;
-
 
         //future sam. this is from gen lender hence the logic of why we would have loose assets and no lent assets
         if (lentAssets == 0) {
@@ -229,7 +226,6 @@ contract AHLender is BaseStrategy {
             _profit = total - debt;
             uint256 amountToFree = _profit + _debtPayment;
             if (amountToFree > 0 && looseAssets < amountToFree) {
-
                 //withdraw what we can withdraw
                 _withdrawSome(amountToFree + looseAssets);
                 uint256 newLoose = want.balanceOf(address(this));
@@ -263,7 +259,6 @@ contract AHLender is BaseStrategy {
     }
 
     function _adjustPosition(uint256 _debtOutstanding) internal override {
-
         uint256 _toInvest = want.balanceOf(address(this));
 
         safeBox.deposit(_toInvest);
@@ -272,18 +267,15 @@ contract AHLender is BaseStrategy {
     //withdraw amount from safebox
     //safe to enter more than we have
     function _withdrawSome(uint256 _amount) internal returns (uint256) {
-        
-
         uint256 amountInCtokens = convertFromUnderlying(_amount);
         uint256 balanceOfSafebox = safeBox.balanceOf(address(this));
 
         uint256 balanceBefore = want.balanceOf(address(this));
 
-        if(balanceOfSafebox < 2){
+        if (balanceOfSafebox < 2) {
             return 0;
         }
-        balanceOfSafebox = balanceOfSafebox-1;
-       
+        balanceOfSafebox = balanceOfSafebox - 1;
 
         if (amountInCtokens > balanceOfSafebox) {
             //cant withdraw more than we own
@@ -295,8 +287,8 @@ contract AHLender is BaseStrategy {
         uint256 liquidityInCTokens = convertFromUnderlying(liquidity);
 
         if (liquidityInCTokens > 2) {
-            liquidityInCTokens = liquidityInCTokens-1;
-           
+            liquidityInCTokens = liquidityInCTokens - 1;
+
             if (amountInCtokens <= liquidityInCTokens) {
                 //we can take all
                 safeBox.withdraw(amountInCtokens);
@@ -309,7 +301,7 @@ contract AHLender is BaseStrategy {
             }
         }
         uint256 newBalance = want.balanceOf(address(this));
- 
+
         return newBalance + balanceBefore;
     }
 
@@ -322,16 +314,14 @@ contract AHLender is BaseStrategy {
 
         uint256 looseAssets = want.balanceOf(address(this));
 
-        if(looseAssets < _amountNeeded){
+        if (looseAssets < _amountNeeded) {
             _withdrawSome(_amountNeeded - looseAssets);
         }
-       
 
         _liquidatedAmount = Math.min(_amountNeeded, want.balanceOf(address(this)));
-
     }
 
-    function harvestTrigger(uint256 callCost) public override view returns (bool) {
+    function harvestTrigger(uint256 callCost) public view override returns (bool) {
         uint256 wantCallCost = ethToWant(callCost);
 
         return super.harvestTrigger(wantCallCost);
@@ -351,8 +341,6 @@ contract AHLender is BaseStrategy {
         safeBox.transfer(_newStrategy, safeBox.balanceOf(address(this)));
     }
 
-
-
     // Override this to add all tokens/tokenized positions this contract manages
     // on a *persistent* basis (e.g. not just for swapping back to want ephemerally)
     // NOTE: Do *not* include `want`, already included in `sweep` below
@@ -366,25 +354,14 @@ contract AHLender is BaseStrategy {
     //      protected[2] = tokenC;
     //      return protected;
     //    }
-    function _protectedTokens()
-        internal
-        override
-        view
-        returns (address[] memory)
-    {
-
+    function _protectedTokens() internal view override returns (address[] memory) {
         address[] memory protected = new address[](1);
-          protected[0] = address(safeBox);
-    
-          return protected;
+        protected[0] = address(safeBox);
+
+        return protected;
     }
-	
-    function tendTrigger(uint256 _callCost)
-        public
-        view
-        override
-        returns (bool)
-    {
-		return false;
+
+    function tendTrigger(uint256 _callCost) public view override returns (bool) {
+        return false;
     }
 }
