@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../BaseStrategy.sol";
 
-
 /*
  * This Strategy serves as both a mock Strategy for testing, and an example
  * for integrators on how to use BaseStrategy
@@ -14,14 +13,13 @@ import "../BaseStrategy.sol";
 
 contract TestStrategy is BaseStrategy {
     bool public doReentrancy;
-    bool public ammStatus = true;
     bool noLoss = false;
     bool toMuchGain = false;
     bool toMuchLoss = false;
 
     constructor(address _vault) BaseStrategy(_vault) {}
 
-    function name() external override pure returns (string memory) {
+    function name() external pure override returns (string memory) {
         return "TestStrategy";
     }
 
@@ -35,14 +33,15 @@ contract TestStrategy is BaseStrategy {
         doReentrancy = !doReentrancy;
     }
 
-    function estimatedTotalAssets() external override view returns (uint256) {
+    function estimatedTotalAssets() public view override returns (uint256) {
         // For mock, this is just everything we have
-        return _estimatedTotalAssets();
+        return want.balanceOf(address(this));
     }
 
     function _prepareReturn(uint256 _debtOutstanding)
         internal
         view
+        override
         returns (
             uint256 profit,
             uint256 loss,
@@ -74,7 +73,7 @@ contract TestStrategy is BaseStrategy {
         }
     }
 
-    function _adjustPosition(uint256 _debtOutstanding) internal {
+    function _adjustPosition(uint256 _debtOutstanding) internal override {
         // Whatever we have "free", consider it "invested" now
     }
 
@@ -90,7 +89,12 @@ contract TestStrategy is BaseStrategy {
         noLoss = true;
     }
 
-    function _liquidatePosition(uint256 _amountNeeded) internal view override returns (uint256 liquidatedAmount, uint256 loss) {
+    function _liquidatePosition(uint256 _amountNeeded)
+        internal
+        view
+        override
+        returns (uint256 liquidatedAmount, uint256 loss)
+    {
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
         uint256 totalAssets = want.balanceOf(address(this));
         if (_amountNeeded > totalAssets) {
@@ -122,16 +126,12 @@ contract TestStrategy is BaseStrategy {
         // Nothing needed here because no additional tokens/tokenized positions for mock
     }
 
-    function _protectedTokens() internal override pure returns (address[] memory) {
+    function _protectedTokens() internal pure override returns (address[] memory) {
         return new address[](0); // No additional tokens/tokenized positions for mock
     }
 
-    function _estimatedTotalAssets() internal view returns (uint256) {
-        return want.balanceOf(address(this));
-    }
-
     function expectedReturn() external view returns (uint256) {
-        uint256 estimateAssets = _estimatedTotalAssets();
+        uint256 estimateAssets = estimatedTotalAssets();
 
         uint256 debt = vault.strategies(address(this)).totalDebt;
         if (debt > estimateAssets) {
@@ -144,9 +144,5 @@ contract TestStrategy is BaseStrategy {
     function tendTrigger(uint256 callCost) public pure override returns (bool) {
         if (callCost > 0) return false;
         return true;
-    }
-
-    function setAmmCheck(bool status) external {
-        ammStatus = status;
     }
 }
