@@ -435,6 +435,7 @@ contract AHv2Farmer is BaseStrategy {
         uint256 balance;
         // only try to realize profits if there is no active position
         _sellAVAX();
+        _sellYieldToken();
         positionId = activePosition;
         if (positionId == 0 || _debtOutstanding > 0) {
             balance = want.balanceOf(address(this));
@@ -451,7 +452,6 @@ contract AHv2Farmer is BaseStrategy {
             debtPayment = Math.min(balance, _debtOutstanding);
 
             if (positionId == 0) {
-                _sellYieldToken();
                 uint256 debt = vault.strategies(address(this)).totalDebt;
                 // Balance - Total Debt is profit
                 if (balance > debt) {
@@ -931,9 +931,9 @@ contract AHv2Farmer is BaseStrategy {
      * @notice sell the contracts yield tokens for want if there enough to justify the sell - can remove this method if uni swap spell
      */
     function _sellYieldToken() internal {
-        require(_ammCheck(18, yieldToken), "!ammCheck");
         uint256 balance = IERC20(yieldToken).balanceOf(address(this));
         if (balance == 0) return;
+        require(_ammCheck(18, yieldToken), "!ammCheck");
         uint256[] memory amounts = uniSwapRouter.swapExactTokensForTokens(
             balance,
             0,
