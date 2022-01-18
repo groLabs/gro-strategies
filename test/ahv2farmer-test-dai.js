@@ -730,10 +730,8 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
 
         // harvest shouldnt open a position
         await daiAdaptor.strategyHarvest(0, {from: governance});
-        console.log(avaxBal)
-        console.log(await web3.eth.getBalance(primaryStrategy.address))
         await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
-        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
 
         lastExposure = await primaryStrategy.getExposure();
         trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
@@ -747,7 +745,7 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         // we are still over exposed, so need to run another harvest cycle to get close enough market netural
         await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.gt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())));
         trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
-        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.false;
         await daiAdaptor.strategyHarvest(0, {from: governance});
         lastExposure = await primaryStrategy.getExposure();
         await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.false;
@@ -839,13 +837,26 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         lastExposure = await primaryStrategy.getExposure();
 
         // over exposed and short
+        assert.equal(lastExposure[0], true);
+        assert.equal(lastExposure[1], true);
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(_assets);
+        _assets = await primaryStrategy.estimatedTotalAssets();
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.lt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
+
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
+
+        await daiAdaptor.strategyHarvest(0, {from: governance});
+
+        lastExposure = await primaryStrategy.getExposure();
+
+        // over exposed and short
         assert.equal(lastExposure[0], false);
         assert.equal(lastExposure[1], false);
         await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(_assets);
         _assets = await primaryStrategy.estimatedTotalAssets();
         await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.gt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
 
-        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.false;
+        return expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.false;
     })
   })
 
