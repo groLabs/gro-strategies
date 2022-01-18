@@ -286,7 +286,9 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
             if (change == true) break;
         }
         // run harvest
+
         await usdcAdaptor.strategyHarvest(0, {from: governance})
+        expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(toBN(0));
         // active position should == 0
         expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
@@ -400,6 +402,8 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         // add assets to usdcAdaptor
         await setBalance('usdc', usdcAdaptor.address, '10000');
         // adjust the position, should take on more debt as the collateral ratio is fine
+        const collId = (await primaryStrategy.getPosition(position)).collId
+        await expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collId").that.eql(collId);
         await usdcAdaptor.strategyHarvest(0, {from: governance})
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(position);
 
@@ -408,6 +412,11 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         // the debt and collateral should both have increased
         assert.isAbove(Number(alphaDebtAdd['debts'][0]), Number(alphaDebt['debts'][0]));
         assert.isAbove(Number(alphaDataAdd['collateralSize']), Number(alphaData['collateralSize']));
+        await expect(primaryStrategy.getPosition(position)).to.eventually.have.property("collId").that.not.eql(collId);
+        const new_collId = (await primaryStrategy.getPosition(position)).collId
+
+        await expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collId").that.not.eql(collId);
+        return expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collId").that.eql(new_collId);
     })
 
     it('Should limit the amount the position is adjusted by depending on the borrow limit', async () => {
@@ -1069,7 +1078,7 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
 
         // expectedReturn should be back at 0
         await expect(usdcAdaptor.strategies(primaryStrategy.address)).to.eventually.have.property("totalGain").that.is.a.bignumber.gt(preHarvestProfit);
-        await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.lt(expectedPreHarvest);
+        await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.eq(toBN(0));
 
         return revertChain(sid);
     })
