@@ -245,9 +245,8 @@ contract VaultAdaptorMK2 is
     /// @notice Set how quickly profits are released
     /// @param _factor how quickly profits are released
     function setProfitRelease(uint256 _factor) external onlyOwner {
-        uint256 _releaseFactor = (DEFAULT_DECIMALS_FACTOR * _factor) / 10**6;
-        releaseFactor = _releaseFactor;
-        emit LogNewReleaseFactor(_releaseFactor);
+        releaseFactor = _factor;
+        emit LogNewReleaseFactor(_factor);
     }
 
     /// @notice Calculate system total assets
