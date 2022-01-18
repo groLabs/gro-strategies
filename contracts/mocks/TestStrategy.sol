@@ -118,6 +118,78 @@ contract TestStrategy is BaseStrategy {
         }
     }
 
+    function harvestTrigger(uint256 _callCost)
+        public
+        view
+        override
+        returns (bool)
+    {
+        StrategyParams memory params = vault.strategies(address(this));
+
+        // Should not trigger if Strategy is not activated
+        if (params.activation == 0) return false;
+
+        // Should not trigger if we haven't waited long enough since previous harvest
+        if (block.timestamp - params.lastReport < minReportDelay) return false;
+
+        // Should trigger if hasn't been called in a while
+        if (block.timestamp - params.lastReport >= maxReportDelay) return true;
+
+        // If some amount is owed, pay it back
+        // NOTE: Since debt is based on deposits, it makes sense to guard against large
+        //       changes to the value from triggering a harvest directly through user
+        //       behavior. This should ensure reasonable resistance to manipulation
+        //       from user-initiated withdrawals as the outstanding debt fluctuates.
+        uint256 outstanding = vault.debtOutstanding();
+        if (outstanding > debtThreshold) return true;
+
+        // Check for profits and losses
+        uint256 total = _estimatedTotalAssets();
+        // Trigger if we have a loss to report
+        if (total + debtThreshold < params.totalDebt) return true;
+
+        uint256 profit = 0;
+        if (total > params.totalDebt) profit = total - params.totalDebt; // We've earned a profit!
+
+        // Otherwise, only trigger if it "makes sense" economically (gas cost
+        // is <N% of value moved)
+        uint256 credit = vault.creditAvailable();
+        return (_callCost < credit + profit);
+    }
+
+    function harvest() external override {
+        require(msg.sender == address(vault), "harvest: !vault");
+        uint256 profit = 0;
+        uint256 loss = 0;
+        uint256 debtOutstanding = vault.debtOutstanding();
+        uint256 debtPayment = 0;
+        if (emergencyExit) {
+            // Free up as much capital as possible
+            uint256 totalAssets = _estimatedTotalAssets();
+            // NOTE: use the larger of total assets or debt outstanding to book losses properly
+            (debtPayment, loss) = _liquidatePosition(
+                totalAssets > debtOutstanding ? totalAssets : debtOutstanding
+            );
+            // NOTE: take up any remainder here as profit
+            if (debtPayment > debtOutstanding) {
+                profit = debtPayment - debtOutstanding;
+                debtPayment = debtOutstanding;
+            }
+        } else {
+            // Free up returns for Vault to pull
+            (profit, loss, debtPayment) = _prepareReturn(debtOutstanding);
+        }
+        // Allow Vault to take up to the "harvested" balance of this contract,
+        // which is the amount it has earned since the last time it reported to
+        // the Vault.
+        debtOutstanding = vault.report(profit, loss, debtPayment);
+
+        // Check if free returns are left, and re-invest them
+        _adjustPosition(debtOutstanding);
+
+        emit LogHarvested(profit, loss, debtPayment, debtOutstanding);
+    }
+
     function _prepareMigration(address _newStrategy) internal override {
         // Nothing needed here because no additional tokens/tokenized positions for mock
     }
