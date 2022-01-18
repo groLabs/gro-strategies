@@ -264,7 +264,6 @@ contract AHv2FarmerDai is BaseStrategy {
         uint256[] wantClose; // AVAX value of position when closed [want => AVAX]
         uint256 totalClose; // total value of position on close
         uint256[] wantOpen; // AVAX value of position when opened [want => AVAX]
-        uint256 collId; // collateral ID
         uint256 collateral; // collateral amount
         uint256[] timestamps; // open/close position stamps
     }
@@ -842,16 +841,15 @@ contract AHv2FarmerDai is BaseStrategy {
         bool _withdraw
     ) internal {
         // get position data
-        (, , uint256 collId, uint256 collateralSize) = IHomora(homoraBank)
+        (, , , uint256 collateralSize) = IHomora(homoraBank)
             .getPositionInfo(_positionId);
 
         PositionData storage pos = positions[_positionId];
+        pos.collateral = collateralSize;
         if (_newPosition) {
             activePosition = _positionId;
             pos.timestamps.push(block.timestamp);
             pos.wantOpen = _amounts;
-            pos.collId = collId;
-            pos.collateral = collateralSize;
             emit LogNewPositionOpened(
                 _positionId,
                 _amounts,
@@ -868,7 +866,6 @@ contract AHv2FarmerDai is BaseStrategy {
                 _openPrice[1] -= _amounts[1];
             }
             pos.wantOpen = _openPrice;
-            pos.collateral = collateralSize;
             emit LogPositionAdjusted(
                 _positionId,
                 _amounts,

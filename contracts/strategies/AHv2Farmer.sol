@@ -846,12 +846,12 @@ contract AHv2Farmer is BaseStrategy {
             .getPositionInfo(_positionId);
 
         PositionData storage pos = positions[_positionId];
+        pos.collId = collId;
+        pos.collateral = collateralSize;
         if (_newPosition) {
             activePosition = _positionId;
             pos.timestamps.push(block.timestamp);
             pos.wantOpen = _amounts;
-            pos.collId = collId;
-            pos.collateral = collateralSize;
             emit LogNewPositionOpened(
                 _positionId,
                 _amounts,
@@ -868,7 +868,6 @@ contract AHv2Farmer is BaseStrategy {
                 _openPrice[1] -= _amounts[1];
             }
             pos.wantOpen = _openPrice;
-            pos.collateral = collateralSize;
             emit LogPositionAdjusted(
                 _positionId,
                 _amounts,
