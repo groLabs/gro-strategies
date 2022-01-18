@@ -812,7 +812,7 @@ contract AHv2FarmerDai is BaseStrategy {
         if (_positionId > 0) {
             posWant = positions[_positionId].wantOpen[0];
             if (
-                posWant >= borrowLimit ||
+                posWant * 9750 / PERCENTAGE_DECIMAL_FACTOR > borrowLimit ||
                 volatilityCheck() ||
                 block.timestamp - positions[_positionId].timestamps[0] >=
                 maxReportDelay
