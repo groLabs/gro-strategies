@@ -155,7 +155,7 @@ contract StableYearnXPool is BaseStrategy {
         address _prepCurve = prepCurve;
         address _prepYVault = prepYVault;
         uint256 looseAssets;
-        if (_prepCurve != address(0) && _prepYVault != address(0)){
+        if (_prepCurve != address(0) && _prepYVault != address(0)) {
             migratePool(_prepCurve, _prepYVault);
         }
         (lentAssets, looseAssets) = _estimatedTotalAssets(false);
@@ -212,9 +212,9 @@ contract StableYearnXPool is BaseStrategy {
         uint256 yBalance = yVault.balanceOf(address(this));
         uint256 lpBalance = lpToken.balanceOf(address(this));
 
-        if (yBalance > 0 ) {
+        if (yBalance > 0) {
             // yVault calc are not precise, better to pull out more than needed
-            uint256 _amount_buffered = _amount * (PERCENTAGE_DECIMAL_FACTOR + 500) / PERCENTAGE_DECIMAL_FACTOR;
+            uint256 _amount_buffered = (_amount * (PERCENTAGE_DECIMAL_FACTOR + 500)) / PERCENTAGE_DECIMAL_FACTOR;
             uint256 amountInYtokens = convertFromUnderlying(_amount_buffered, decimals, wantIndex);
             if (amountInYtokens > yBalance) {
                 // Can't withdraw more than we own
@@ -225,7 +225,7 @@ contract StableYearnXPool is BaseStrategy {
         }
         ICurveMetaPool _curve = ICurveMetaPool(curve);
         uint256 tokenAmount = _curve.calc_withdraw_one_coin(lpBalance, wantIndex);
-        uint256 minAmount = tokenAmount - (tokenAmount * (9995) / (10000));
+        uint256 minAmount = tokenAmount - ((tokenAmount * (9995)) / (10000));
 
         _curve.remove_liquidity_one_coin(lpBalance, wantIndex, minAmount);
 
@@ -260,7 +260,7 @@ contract StableYearnXPool is BaseStrategy {
             tokenAmounts[uint256(int256(wantIndex))] = _wantBal;
 
             uint256 minAmount = _curve.calc_token_amount(tokenAmounts, true);
-            minAmount = minAmount - (minAmount * (9995) / (10000));
+            minAmount = minAmount - ((minAmount * (9995)) / (10000));
 
             _curve.add_liquidity(tokenAmounts, minAmount);
             uint256 lpBalance = lpToken.balanceOf(address(this));
@@ -282,7 +282,7 @@ contract StableYearnXPool is BaseStrategy {
         }
     }
 
-    function hardMigration() external onlyOwner() {
+    function hardMigration() external onlyOwner {
         prepareMigration(address(vault));
     }
 
@@ -293,7 +293,7 @@ contract StableYearnXPool is BaseStrategy {
 
         uint256 lpBalance = lpToken.balanceOf(address(this));
         uint256 tokenAmonut = _curve.calc_withdraw_one_coin(lpBalance, wantIndex);
-        uint256 minAmount = tokenAmonut - (tokenAmonut * (9995) / (10000));
+        uint256 minAmount = tokenAmonut - ((tokenAmonut * (9995)) / (10000));
         _curve.remove_liquidity_one_coin(lpToken.balanceOf(address(this)), wantIndex, minAmount);
         uint256 looseAssets = want.balanceOf(address(this));
         want.safeTransfer(_newStrategy, looseAssets);
@@ -308,7 +308,7 @@ contract StableYearnXPool is BaseStrategy {
     }
 
     /// @notice Migrate to new metapool
-    function migratePool(address _prepCurve, address _prepYVault) private  {
+    function migratePool(address _prepCurve, address _prepYVault) private {
         if (yVault.balanceOf(address(this)) > 0) {
             migrateWant();
         }
@@ -321,7 +321,7 @@ contract StableYearnXPool is BaseStrategy {
     /// @notice Migrate Yearn vault
     /// @param _prepYVault Target Yvault
     /// @param _prepCurve Target Curve meta pool
-    function migrateYearn(address _prepYVault, address _prepCurve) private returns (address){
+    function migrateYearn(address _prepYVault, address _prepCurve) private returns (address) {
         yVault = V2YVault(_prepYVault); // Set the yearn vault for this strategy
         curve = _prepCurve;
         address _lpToken = yVault.token();
@@ -342,7 +342,7 @@ contract StableYearnXPool is BaseStrategy {
 
         uint256 lpBalance = lpToken.balanceOf(address(this));
         uint256 tokenAmonut = _curve.calc_withdraw_one_coin(lpBalance, wantIndex);
-        uint256 minAmount = tokenAmonut - (tokenAmonut * (9995) / (10000));
+        uint256 minAmount = tokenAmonut - ((tokenAmonut * (9995)) / (10000));
 
         _curve.remove_liquidity_one_coin(lpToken.balanceOf(address(this)), wantIndex, minAmount);
         return true;
@@ -352,7 +352,7 @@ contract StableYearnXPool is BaseStrategy {
     /// @param diff Calc token amounts (curve) underreports total amount, to counteract this
     ///     we add initial difference from last harvest to estimated total assets,
     function _estimatedTotalAssets(bool diff) private view returns (uint256, uint256) {
-        uint256 amount = yVault.balanceOf(address(this)) * (yVault.pricePerShare()) / (uint256(10)**decimals);
+        uint256 amount = (yVault.balanceOf(address(this)) * (yVault.pricePerShare())) / (uint256(10)**decimals);
         amount += lpToken.balanceOf(address(this));
         uint256 estimated = 0;
         if (amount > 0) {
@@ -378,7 +378,7 @@ contract StableYearnXPool is BaseStrategy {
         if (amountOfTokens == 0) {
             balance = 0;
         } else {
-            uint256 lpAmount = amountOfTokens * (yVault.pricePerShare()) / (uint256(10)**_decimals);
+            uint256 lpAmount = (amountOfTokens * (yVault.pricePerShare())) / (uint256(10)**_decimals);
             balance = ICurveMetaPool(curve).calc_withdraw_one_coin(lpAmount, index);
         }
     }
@@ -394,7 +394,7 @@ contract StableYearnXPool is BaseStrategy {
             balance = 0;
         } else {
             uint256 lpAmount = wantToLp(amountOfUnderlying, index);
-            balance = lpAmount * (uint256(10)**_decimals) / (yVault.pricePerShare());
+            balance = (lpAmount * (uint256(10)**_decimals)) / (yVault.pricePerShare());
         }
     }
 

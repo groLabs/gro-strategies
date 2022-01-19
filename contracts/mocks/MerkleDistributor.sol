@@ -1,24 +1,30 @@
 /**
  *Submitted for verification at Etherscan.io on 2021-09-08
-*/
+ */
 
 // SPDX-License-Identifier: NONE
 
-pragma solidity 0.6.11;
-
-
+pragma solidity 0.6.12;
 
 // Part: IMerkleDistributor
 
 interface IMerkleDistributor {
     // Returns the address of the token distributed by this contract.
     function token() external view returns (address);
+
     // Returns the merkle root of the merkle tree containing account balances available to claim.
     function merkleRoot() external view returns (bytes32);
+
     // Returns true if the index has been marked claimed.
     function isClaimed(uint256 index) external view returns (bool);
+
     // Claim the given amount of the token to the given address. Reverts if the inputs are invalid.
-    function claim(uint256 index, address account, uint256 amount, bytes32[] calldata merkleProof) external;
+    function claim(
+        uint256 index,
+        address account,
+        uint256 amount,
+        bytes32[] calldata merkleProof
+    ) external;
 
     // This event is triggered whenever a call to #claim succeeds.
     event Claimed(uint256 index, address account, uint256 amount);
@@ -54,7 +60,9 @@ library Address {
 
         uint256 size;
         // solhint-disable-next-line no-inline-assembly
-        assembly { size := extcodesize(account) }
+        assembly {
+            size := extcodesize(account)
+        }
         return size > 0;
     }
 
@@ -78,7 +86,7 @@ library Address {
         require(address(this).balance >= amount, "Address: insufficient balance");
 
         // solhint-disable-next-line avoid-low-level-calls, avoid-call-value
-        (bool success, ) = recipient.call{ value: amount }("");
+        (bool success, ) = recipient.call{value: amount}("");
         require(success, "Address: unable to send value, recipient may have reverted");
     }
 
@@ -101,7 +109,7 @@ library Address {
      * _Available since v3.1._
      */
     function functionCall(address target, bytes memory data) internal returns (bytes memory) {
-      return functionCall(target, data, "Address: low-level call failed");
+        return functionCall(target, data, "Address: low-level call failed");
     }
 
     /**
@@ -110,7 +118,11 @@ library Address {
      *
      * _Available since v3.1._
      */
-    function functionCall(address target, bytes memory data, string memory errorMessage) internal returns (bytes memory) {
+    function functionCall(
+        address target,
+        bytes memory data,
+        string memory errorMessage
+    ) internal returns (bytes memory) {
         return _functionCallWithValue(target, data, 0, errorMessage);
     }
 
@@ -125,7 +137,11 @@ library Address {
      *
      * _Available since v3.1._
      */
-    function functionCallWithValue(address target, bytes memory data, uint256 value) internal returns (bytes memory) {
+    function functionCallWithValue(
+        address target,
+        bytes memory data,
+        uint256 value
+    ) internal returns (bytes memory) {
         return functionCallWithValue(target, data, value, "Address: low-level call with value failed");
     }
 
@@ -135,16 +151,26 @@ library Address {
      *
      * _Available since v3.1._
      */
-    function functionCallWithValue(address target, bytes memory data, uint256 value, string memory errorMessage) internal returns (bytes memory) {
+    function functionCallWithValue(
+        address target,
+        bytes memory data,
+        uint256 value,
+        string memory errorMessage
+    ) internal returns (bytes memory) {
         require(address(this).balance >= value, "Address: insufficient balance for call");
         return _functionCallWithValue(target, data, value, errorMessage);
     }
 
-    function _functionCallWithValue(address target, bytes memory data, uint256 weiValue, string memory errorMessage) private returns (bytes memory) {
+    function _functionCallWithValue(
+        address target,
+        bytes memory data,
+        uint256 weiValue,
+        string memory errorMessage
+    ) private returns (bytes memory) {
         require(isContract(target), "Address: call to non-contract");
 
         // solhint-disable-next-line avoid-low-level-calls
-        (bool success, bytes memory returndata) = target.call{ value: weiValue }(data);
+        (bool success, bytes memory returndata) = target.call{value: weiValue}(data);
         if (success) {
             return returndata;
         } else {
@@ -246,7 +272,11 @@ interface IERC20 {
      *
      * Emits a {Transfer} event.
      */
-    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+    function transferFrom(
+        address sender,
+        address recipient,
+        uint256 amount
+    ) external returns (bool);
 
     /**
      * @dev Emitted when `value` tokens are moved from one account (`from`) to
@@ -275,7 +305,11 @@ library MerkleProof {
      * sibling hashes on the branch from the leaf to the root of the tree. Each
      * pair of leaves and each pair of pre-images are assumed to be sorted.
      */
-    function verify(bytes32[] memory proof, bytes32 root, bytes32 leaf) internal pure returns (bool) {
+    function verify(
+        bytes32[] memory proof,
+        bytes32 root,
+        bytes32 leaf
+    ) internal pure returns (bool) {
         bytes32 computedHash = leaf;
 
         for (uint256 i = 0; i < proof.length; i++) {
@@ -352,7 +386,11 @@ library SafeMath {
      *
      * - Subtraction cannot overflow.
      */
-    function sub(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
+    function sub(
+        uint256 a,
+        uint256 b,
+        string memory errorMessage
+    ) internal pure returns (uint256) {
         require(b <= a, errorMessage);
         uint256 c = a - b;
 
@@ -411,7 +449,11 @@ library SafeMath {
      *
      * - The divisor cannot be zero.
      */
-    function div(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
+    function div(
+        uint256 a,
+        uint256 b,
+        string memory errorMessage
+    ) internal pure returns (uint256) {
         require(b > 0, errorMessage);
         uint256 c = a / b;
         // assert(a == b * c + a % b); // There is no case in which this doesn't hold
@@ -447,7 +489,11 @@ library SafeMath {
      *
      * - The divisor cannot be zero.
      */
-    function mod(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
+    function mod(
+        uint256 a,
+        uint256 b,
+        string memory errorMessage
+    ) internal pure returns (uint256) {
         require(b != 0, errorMessage);
         return a % b;
     }
@@ -475,7 +521,7 @@ contract Ownable is Context {
     /**
      * @dev Initializes the contract setting the deployer as the initial owner.
      */
-    constructor () internal {
+    constructor() internal {
         address msgSender = _msgSender();
         _owner = msgSender;
         emit OwnershipTransferred(address(0), msgSender);
@@ -534,11 +580,20 @@ library SafeERC20 {
     using SafeMath for uint256;
     using Address for address;
 
-    function safeTransfer(IERC20 token, address to, uint256 value) internal {
+    function safeTransfer(
+        IERC20 token,
+        address to,
+        uint256 value
+    ) internal {
         _callOptionalReturn(token, abi.encodeWithSelector(token.transfer.selector, to, value));
     }
 
-    function safeTransferFrom(IERC20 token, address from, address to, uint256 value) internal {
+    function safeTransferFrom(
+        IERC20 token,
+        address from,
+        address to,
+        uint256 value
+    ) internal {
         _callOptionalReturn(token, abi.encodeWithSelector(token.transferFrom.selector, from, to, value));
     }
 
@@ -549,24 +604,40 @@ library SafeERC20 {
      * Whenever possible, use {safeIncreaseAllowance} and
      * {safeDecreaseAllowance} instead.
      */
-    function safeApprove(IERC20 token, address spender, uint256 value) internal {
+    function safeApprove(
+        IERC20 token,
+        address spender,
+        uint256 value
+    ) internal {
         // safeApprove should only be called when setting an initial allowance,
         // or when resetting it to zero. To increase and decrease it, use
         // 'safeIncreaseAllowance' and 'safeDecreaseAllowance'
         // solhint-disable-next-line max-line-length
-        require((value == 0) || (token.allowance(address(this), spender) == 0),
+        require(
+            (value == 0) || (token.allowance(address(this), spender) == 0),
             "SafeERC20: approve from non-zero to non-zero allowance"
         );
         _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, value));
     }
 
-    function safeIncreaseAllowance(IERC20 token, address spender, uint256 value) internal {
+    function safeIncreaseAllowance(
+        IERC20 token,
+        address spender,
+        uint256 value
+    ) internal {
         uint256 newAllowance = token.allowance(address(this), spender).add(value);
         _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, newAllowance));
     }
 
-    function safeDecreaseAllowance(IERC20 token, address spender, uint256 value) internal {
-        uint256 newAllowance = token.allowance(address(this), spender).sub(value, "SafeERC20: decreased allowance below zero");
+    function safeDecreaseAllowance(
+        IERC20 token,
+        address spender,
+        uint256 value
+    ) internal {
+        uint256 newAllowance = token.allowance(address(this), spender).sub(
+            value,
+            "SafeERC20: decreased allowance below zero"
+        );
         _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, newAllowance));
     }
 
@@ -582,7 +653,8 @@ library SafeERC20 {
         // the target address contains contract code and also asserts for success in the low-level call.
 
         bytes memory returndata = address(token).functionCall(data, "SafeERC20: low-level call failed");
-        if (returndata.length > 0) { // Return data is optional
+        if (returndata.length > 0) {
+            // Return data is optional
             // solhint-disable-next-line max-line-length
             require(abi.decode(returndata, (bool)), "SafeERC20: ERC20 operation did not succeed");
         }
@@ -592,83 +664,83 @@ library SafeERC20 {
 // File: MerkleDistributor.sol
 
 contract MerkleDistributor is IMerkleDistributor, Ownable {
-  using SafeERC20 for IERC20;
+    using SafeERC20 for IERC20;
 
-  address public immutable override token;
-  bytes32 public immutable override merkleRoot;
+    address public immutable override token;
+    bytes32 public immutable override merkleRoot;
 
-  // This is a packed array of booleans.
-  mapping(uint => uint) private claimedBitMap;
+    // This is a packed array of booleans.
+    mapping(uint256 => uint256) private claimedBitMap;
 
-  event WithdrawTokens(address indexed withdrawer, address token, uint amount);
-  event WithdrawRewardTokens(address indexed withdrawer, uint amount);
-  event WithdrawAllRewardTokens(address indexed withdrawer, uint amount);
-  event Deposit(address indexed depositor, uint amount);
+    event WithdrawTokens(address indexed withdrawer, address token, uint256 amount);
+    event WithdrawRewardTokens(address indexed withdrawer, uint256 amount);
+    event WithdrawAllRewardTokens(address indexed withdrawer, uint256 amount);
+    event Deposit(address indexed depositor, uint256 amount);
 
-  constructor(address token_, bytes32 merkleRoot_) public {
-    token = token_;
-    merkleRoot = merkleRoot_;
-  }
+    constructor(address token_, bytes32 merkleRoot_) public {
+        token = token_;
+        merkleRoot = merkleRoot_;
+    }
 
-  function isClaimed(uint index) public view override returns (bool) {
-    uint claimedWordIndex = index / 256;
-    uint claimedBitIndex = index % 256;
-    uint claimedWord = claimedBitMap[claimedWordIndex];
-    uint mask = (1 << claimedBitIndex);
-    return claimedWord & mask == mask;
-  }
+    function isClaimed(uint256 index) public view override returns (bool) {
+        uint256 claimedWordIndex = index / 256;
+        uint256 claimedBitIndex = index % 256;
+        uint256 claimedWord = claimedBitMap[claimedWordIndex];
+        uint256 mask = (1 << claimedBitIndex);
+        return claimedWord & mask == mask;
+    }
 
-  function _setClaimed(uint index) private {
-    uint claimedWordIndex = index / 256;
-    uint claimedBitIndex = index % 256;
-    claimedBitMap[claimedWordIndex] = claimedBitMap[claimedWordIndex] | (1 << claimedBitIndex);
-  }
+    function _setClaimed(uint256 index) private {
+        uint256 claimedWordIndex = index / 256;
+        uint256 claimedBitIndex = index % 256;
+        claimedBitMap[claimedWordIndex] = claimedBitMap[claimedWordIndex] | (1 << claimedBitIndex);
+    }
 
-  function claim(
-    uint index,
-    address account,
-    uint amount,
-    bytes32[] calldata merkleProof
-  ) external override {
-    require(!isClaimed(index), 'MerkleDistributor: Drop already claimed.');
+    function claim(
+        uint256 index,
+        address account,
+        uint256 amount,
+        bytes32[] calldata merkleProof
+    ) external override {
+        require(!isClaimed(index), "MerkleDistributor: Drop already claimed.");
 
-    // Verify the merkle proof.
-    bytes32 node = keccak256(abi.encodePacked(index, account, amount));
-    require(MerkleProof.verify(merkleProof, merkleRoot, node), 'MerkleDistributor: Invalid proof.');
+        // Verify the merkle proof.
+        bytes32 node = keccak256(abi.encodePacked(index, account, amount));
+        require(MerkleProof.verify(merkleProof, merkleRoot, node), "MerkleDistributor: Invalid proof.");
 
-    // Mark it claimed and send the token.
-    _setClaimed(index);
-    require(IERC20(token).transfer(account, amount), 'MerkleDistributor: Transfer failed.');
+        // Mark it claimed and send the token.
+        _setClaimed(index);
+        require(IERC20(token).transfer(account, amount), "MerkleDistributor: Transfer failed.");
 
-    emit Claimed(index, account, amount);
-  }
+        emit Claimed(index, account, amount);
+    }
 
-  // Deposit token for merkle distribution
-  function deposit(uint _amount) external onlyOwner {
-    IERC20(token).safeTransferFrom(msg.sender, address(this), _amount);
-    emit Deposit(msg.sender, _amount);
-  }
+    // Deposit token for merkle distribution
+    function deposit(uint256 _amount) external onlyOwner {
+        IERC20(token).safeTransferFrom(msg.sender, address(this), _amount);
+        emit Deposit(msg.sender, _amount);
+    }
 
-  // Emergency withdraw tokens for admin
-  function withdrawTokens(address _token, uint _amount) external onlyOwner {
-    IERC20(_token).safeTransfer(msg.sender, _amount);
-    emit WithdrawTokens(msg.sender, _token, _amount);
-  }
+    // Emergency withdraw tokens for admin
+    function withdrawTokens(address _token, uint256 _amount) external onlyOwner {
+        IERC20(_token).safeTransfer(msg.sender, _amount);
+        emit WithdrawTokens(msg.sender, _token, _amount);
+    }
 
-  // Emergency withdraw reward tokens for admin
-  function withdrawRewardTokens(uint _amount) external onlyOwner {
-    IERC20(token).safeTransfer(msg.sender, _amount);
-    emit WithdrawRewardTokens(msg.sender, _amount);
-  }
+    // Emergency withdraw reward tokens for admin
+    function withdrawRewardTokens(uint256 _amount) external onlyOwner {
+        IERC20(token).safeTransfer(msg.sender, _amount);
+        emit WithdrawRewardTokens(msg.sender, _amount);
+    }
 
-  // Emergency withdraw ALL reward tokens for admin
-  function withdrawAllRewardTokens() external onlyOwner {
-    uint amount = IERC20(token).balanceOf(address(this));
-    IERC20(token).safeTransfer(msg.sender, amount);
-    emit WithdrawAllRewardTokens(msg.sender, amount);
-  }
+    // Emergency withdraw ALL reward tokens for admin
+    function withdrawAllRewardTokens() external onlyOwner {
+        uint256 amount = IERC20(token).balanceOf(address(this));
+        IERC20(token).safeTransfer(msg.sender, amount);
+        emit WithdrawAllRewardTokens(msg.sender, amount);
+    }
 
-  function renounceOwnership() public override onlyOwner {
-    revert('');
-  }
+    function renounceOwnership() public override onlyOwner {
+        revert("");
+    }
 }
