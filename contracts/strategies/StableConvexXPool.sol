@@ -146,13 +146,14 @@ contract StableConvexXPool is BaseStrategy {
         }
     }
 
+    uint256 constant totalCliffs = 100;
+    uint256 constant maxSupply = 1e8 * 1e18;
+    uint256 constant reductionPerCliff = 1e5 * 1e18;
+
     function _claimableBasic(uint256 toIndex) private view returns (uint256) {
         uint256 crv = Rewards(rewardContract).earned(address(this));
 
         // calculations pulled directly from CVX's contract for minting CVX per CRV claimed
-        uint256 totalCliffs = 1000;
-        uint256 maxSupply = 1e8 * 1e18; // 100m
-        uint256 reductionPerCliff = 1e5 * 1e18; // 100k
         uint256 supply = IERC20(CVX).totalSupply();
         uint256 cvx;
 
