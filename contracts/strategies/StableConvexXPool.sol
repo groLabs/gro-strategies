@@ -4,6 +4,7 @@ pragma solidity 0.8.3;
 import "../BaseStrategy.sol";
 import "../interfaces/ICurve.sol";
 import "../interfaces/UniSwap/IUni.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface Booster {
     struct PoolInfo {
@@ -41,9 +42,15 @@ interface Rewards {
     function earned(address account) external view returns (uint256);
 
     function withdrawAndUnwrap(uint256 amount, bool claim) external returns (bool);
+
+    function withdrawAllAndUnwrap(bool claim) external;
+
+    function getReward() external returns (bool);
 }
 
 contract StableConvexXPool is BaseStrategy {
+    using SafeERC20 for IERC20;
+
     address public constant BOOSTER = address(0xF403C135812408BFbE8713b5A23a04b3D48AAE31);
 
     address public constant CVX = address(0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B);
@@ -69,6 +76,12 @@ contract StableConvexXPool is BaseStrategy {
     IERC20 public lpToken;
     uint256 public pId;
     address public rewardContract;
+
+    uint256 public newPId;
+    address public newCurve;
+    IERC20 public newLPToken;
+    address public newRewardContract;
+
     address[] public dex;
 
     constructor(address _vault, int128 wantIndex) BaseStrategy(_vault) {
@@ -86,19 +99,20 @@ contract StableConvexXPool is BaseStrategy {
         want.approve(CRV_3POOL, type(uint256).max);
     }
 
-    function setMetaPool(uint256 newId, address newCurve) external onlyOwner {
-        require(newId != pId, "setMetaPool: same id");
-        (address lp, , , address reward, , bool shutdown) = Booster(BOOSTER).poolInfo(newId);
+    function switchPool(uint256 _newPId, address _newCurve) external onlyAuthorized {
+        require(_newPId != pId, "setMetaPool: same id");
+        (address lp, , , address reward, , bool shutdown) = Booster(BOOSTER).poolInfo(_newPId);
         require(!shutdown, "setMetaPool: pool is shutdown");
-        lpToken = IERC20(lp);
-        rewardContract = reward;
-        pId = newId;
-        curve = newCurve;
-
-        CRV_3POOL_TOKEN.approve(curve, 0);
-        CRV_3POOL_TOKEN.approve(curve, type(uint256).max);
-        lpToken.approve(BOOSTER, 0);
-        lpToken.approve(BOOSTER, type(uint256).max);
+        newLPToken = IERC20(lp);
+        newRewardContract = reward;
+        newPId = _newPId;
+        newCurve = _newCurve;
+        if (CRV_3POOL_TOKEN.allowance(address(this), newCurve) == 0) {
+            CRV_3POOL_TOKEN.approve(curve, type(uint256).max);
+        }
+        if (lpToken.allowance(address(this), BOOSTER) == 0) {
+            lpToken.approve(BOOSTER, type(uint256).max);
+        }
     }
 
     function switchDex(uint256 id, address newDex) external onlyAuthorized {
@@ -119,11 +133,17 @@ contract StableConvexXPool is BaseStrategy {
     }
 
     function estimatedTotalAssets() public view override returns (uint256 estimated) {
+        estimated = _estimatedTotalAssets(true);
+    }
+
+    function _estimatedTotalAssets(bool includeReward) private view returns (uint256 estimated) {
         uint256 lpAmount = Rewards(rewardContract).balanceOf(address(this));
         uint256 crv3Amount = ICurveMetaPool(curve).calc_withdraw_one_coin(lpAmount, CRV3_INDEX);
         estimated = ICurve3Pool(CRV_3POOL).calc_withdraw_one_coin(crv3Amount, WANT_INDEX);
         estimated += want.balanceOf(address(this));
-        estimated += _claimableBasic(TO_WANT);
+        if (includeReward) {
+            estimated += _claimableBasic(TO_WANT);
+        }
     }
 
     function _claimableBasic(uint256 toIndex) private view returns (uint256) {
@@ -142,7 +162,7 @@ contract StableConvexXPool is BaseStrategy {
             // for reduction% take inverse of current cliff
             uint256 reduction = totalCliffs - cliff;
             // reduce
-            cvx = (cvx * reduction) / totalCliffs;
+            cvx = (crv * reduction) / totalCliffs;
 
             // supply cap check
             uint256 amtTillMax = maxSupply - supply;
@@ -235,11 +255,20 @@ contract StableConvexXPool is BaseStrategy {
 
         uint256 before = want.balanceOf(address(this));
 
-        Rewards(rewardContract).withdrawAndUnwrap(_amount, false);
+        // withdraw from convex
+        Rewards(rewardContract).withdrawAndUnwrap(lpAmount, false);
 
         // remove liquidity from metapool
+        lpAmount = lpToken.balanceOf(address(this));
+        uint256 minAmount = ICurveMetaPool(curve).calc_withdraw_one_coin(lpAmount, CRV3_INDEX);
+        minAmount = minAmount - ((minAmount * (9995)) / (10000));
+        ICurveMetaPool(curve).remove_liquidity_one_coin(lpAmount, CRV3_INDEX, minAmount);
 
         // remove liquidity from 3pool
+        lpAmount = CRV_3POOL_TOKEN.balanceOf(address(this));
+        minAmount = ICurve3Pool(CRV_3POOL).calc_withdraw_one_coin(lpAmount, WANT_INDEX);
+        minAmount = minAmount - ((minAmount * (9995)) / (10000));
+        ICurve3Deposit(CRV_3POOL).remove_liquidity_one_coin(lpAmount, WANT_INDEX, minAmount);
 
         return want.balanceOf(address(this)) - before;
     }
@@ -264,14 +293,155 @@ contract StableConvexXPool is BaseStrategy {
             uint256 _loss,
             uint256 _debtPayment
         )
-    {}
+    {
+        uint256 total;
+        uint256 wantBal;
+        if (curve == address(0)) {
+            // invest into strategy first time
+            _changePool();
+        } else if (newCurve != address(0)) {
+            _withdrawAll();
+            _changePool();
+            wantBal = want.balanceOf(address(this));
+            total = wantBal;
+        } else {
+            Rewards(rewardContract).getReward();
+            _sellBasic();
+            total = _estimatedTotalAssets(false);
+            wantBal = want.balanceOf(address(this));
+        }
+
+        _debtPayment = _debtOutstanding;
+        uint256 debt = vault.strategies(address(this)).totalDebt;
+        if (total > debt) {
+            _profit = total - debt;
+
+            uint256 amountToFree = _profit + _debtPayment;
+            if (amountToFree > 0 && wantBal < amountToFree) {
+                _withdrawSome(amountToFree - wantBal);
+                wantBal = want.balanceOf(address(this));
+
+                if (wantBal < amountToFree) {
+                    if (_profit > wantBal) {
+                        _profit = wantBal;
+                        _debtPayment = 0;
+                    } else {
+                        _debtPayment = Math.min(wantBal - _profit, _debtPayment);
+                    }
+                }
+            }
+        } else {
+            _loss = debt - total;
+            uint256 amountToFree = _debtPayment;
+
+            if (amountToFree > 0 && wantBal < amountToFree) {
+                _withdrawSome(amountToFree - wantBal);
+                wantBal = want.balanceOf(address(this));
+
+                if (wantBal < amountToFree) {
+                    _debtPayment = wantBal;
+                }
+            }
+        }
+    }
+
+    function _changePool() private {
+        pId = newPId;
+        curve = newCurve;
+        lpToken = newLPToken;
+        rewardContract = newRewardContract;
+
+        newCurve = address(0);
+        newPId = 0;
+        newLPToken = IERC20(address(0));
+        newRewardContract = address(0);
+    }
+
+    function _sellBasic() private {
+        uint256 crv = IERC20(CRV).balanceOf(address(this));
+        if (crv > 0) {
+            IUni(dex[0]).swapExactTokensForTokens(
+                crv,
+                uint256(0),
+                _getPath(CRV, TO_WANT),
+                address(this),
+                block.timestamp
+            );
+        }
+        uint256 cvx = IERC20(CVX).balanceOf(address(this));
+        if (cvx > 0) {
+            IUni(dex[1]).swapExactTokensForTokens(
+                cvx,
+                uint256(0),
+                _getPath(CVX, TO_WANT),
+                address(this),
+                block.timestamp
+            );
+        }
+    }
 
     function tendTrigger(uint256 callCost) public pure override returns (bool) {
         callCost;
         return false;
     }
 
-    function prepareMigration(address _newStrategy) internal override {}
+    function prepareMigration(address _newStrategy) internal override {
+        _newStrategy;
+        _withdrawAll();
+    }
 
-    function protectedTokens() internal view override returns (address[] memory) {}
+    function _withdrawAll() private {
+        Rewards(rewardContract).withdrawAllAndUnwrap(true);
+        _sellBasic();
+
+        // remove liquidity from metapool
+        uint256 lpAmount = lpToken.balanceOf(address(this));
+        uint256 minAmount = ICurveMetaPool(curve).calc_withdraw_one_coin(lpAmount, CRV3_INDEX);
+        minAmount = minAmount - ((minAmount * (9995)) / (10000));
+        ICurveMetaPool(curve).remove_liquidity_one_coin(lpAmount, CRV3_INDEX, minAmount);
+
+        // remove liquidity from 3pool
+        lpAmount = CRV_3POOL_TOKEN.balanceOf(address(this));
+        minAmount = ICurve3Pool(CRV_3POOL).calc_withdraw_one_coin(lpAmount, WANT_INDEX);
+        minAmount = minAmount - ((minAmount * (9995)) / (10000));
+        ICurve3Deposit(CRV_3POOL).remove_liquidity_one_coin(lpAmount, WANT_INDEX, minAmount);
+    }
+
+    function protectedTokens() internal pure override returns (address[] memory) {
+        address[] memory protected = new address[](2);
+        protected[0] = CRV;
+        protected[1] = CVX;
+        return protected;
+    }
+
+    function harvestTrigger(uint256 callCost) public view override returns (bool) {
+        StrategyParams memory params = vault.strategies(address(this));
+
+        if (params.activation == 0) return false;
+
+        if (block.timestamp - params.lastReport < minReportDelay) return false;
+
+        if (block.timestamp - params.lastReport >= maxReportDelay) return true;
+
+        uint256 outstanding = vault.debtOutstanding();
+        if (outstanding > debtThreshold) return true;
+
+        uint256 total = estimatedTotalAssets();
+        if (total + debtThreshold < params.totalDebt) return true;
+
+        uint256 profit;
+        if (total > params.totalDebt) {
+            profit = total - params.totalDebt;
+        }
+
+        return (profitFactor * callCost < _wantToETH(profit));
+    }
+
+    function _wantToETH(uint256 wantAmount) private view returns (uint256) {
+        address[] memory path = new address[](2);
+        path[0] = address(want);
+        path[1] = WETH;
+        uint256[] memory amounts = IUni(dex[0]).getAmountsOut(wantAmount, path);
+        return amounts[1];
+    }
 }
