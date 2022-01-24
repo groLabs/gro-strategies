@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.3;
+pragma solidity 0.8.4;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 abstract contract MockERC20 is ERC20, Ownable {
-    
-    mapping (address => bool) internal claimed;
+    mapping(address => bool) internal claimed;
 
     function faucet() external virtual;
 

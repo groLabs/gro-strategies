@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.3;
+pragma solidity 0.8.4;
 
 import "../common/Constants.sol";
 import "../interfaces/IBuoy.sol";
@@ -200,7 +200,7 @@ contract MockController is Constants, IController, IWithdrawHandler, IDepositHan
         uint256[3] memory _amounts;
         if (whale) {
             for (uint256 i = 0; i < 3; i++) {
-                uint256 lpPart = lpAmount * delta[i] / 10000;
+                uint256 lpPart = (lpAmount * delta[i]) / 10000;
                 uint256 amount = _buoy.singleStableFromLp(lpPart, int128(uint128(i)));
                 IVault vault = IVault(underlyingVaults[i]);
                 vault.withdrawByStrategyOrder(amount, msg.sender, pwrd_);
@@ -249,7 +249,7 @@ contract MockController is Constants, IController, IWithdrawHandler, IDepositHan
         uint256 dollarAmount;
         if (whale) {
             for (uint256 i = 0; i < 3; i++) {
-                uint256 lpPart = lpAmount * delta[i] / 10000;
+                uint256 lpPart = (lpAmount * delta[i]) / 10000;
                 uint256 amount = _buoy.singleStableFromLp(lpPart, int128(uint128(i)));
                 IVault vault = IVault(underlyingVaults[i]);
                 vault.withdrawByStrategyOrder(amount, lifeGuard, pwrd_);

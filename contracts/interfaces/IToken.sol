@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.3;
+pragma solidity 0.8.4;
 
 interface IToken {
     function factor() external view returns (uint256);

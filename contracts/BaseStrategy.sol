@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity 0.8.3;
+pragma solidity 0.8.4;
 pragma experimental ABIEncoderV2;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,9 +18,13 @@ struct StrategyParams {
 
 interface VaultAPI {
     function decimals() external view returns (uint256);
+
     function token() external view returns (address);
+
     function vaultAdapter() external view returns (address);
+
     function strategies(address _strategy) external view returns (StrategyParams memory);
+
     /**
      * View how much the Vault would increase this Strategy's borrow limit,
      * based on its present performance (since its last report). Can be used to
@@ -65,6 +69,7 @@ interface VaultAPI {
      * external dependency.
      */
     function revokeStrategy() external;
+
     function governance() external view returns (address);
 }
 
@@ -73,16 +78,27 @@ interface VaultAPI {
  */
 interface StrategyAPI {
     function name() external view returns (string memory);
+
     function vault() external view returns (address);
+
     function want() external view returns (address);
+
     function keeper() external view returns (address);
+
     function isActive() external view returns (bool);
+
     function estimatedTotalAssets() external view returns (uint256);
+
     function expectedReturn() external view returns (uint256);
+
     function tendTrigger(uint256 callCost) external view returns (bool);
+
     function tend() external;
+
     function harvestTrigger(uint256 callCost) external view returns (bool);
+
     function harvest() external;
+
     event Harvested(uint256 profit, uint256 loss, uint256 debtPayment, uint256 debtOutstanding);
 }
 
@@ -377,7 +393,7 @@ abstract contract BaseStrategy {
      * @param callCost The keeper's estimated cast cost to call `tend()`.
      * @return `true` if `tend()` should be called, `false` otherwise.
      */
-    function tendTrigger(uint256 callCost) public view virtual returns (bool); 
+    function tendTrigger(uint256 callCost) public view virtual returns (bool);
 
     /**
      * @notice
@@ -473,7 +489,7 @@ abstract contract BaseStrategy {
      *  any losses have occurred.
      */
     function harvest() external {
-        require(msg.sender == vault.vaultAdapter(), 'harvest: Call from vault');
+        require(msg.sender == vault.vaultAdapter(), "harvest: Call from vault");
         uint256 profit = 0;
         uint256 loss = 0;
         uint256 debtOutstanding = vault.debtOutstanding();
@@ -482,9 +498,7 @@ abstract contract BaseStrategy {
             // Free up as much capital as possible
             uint256 totalAssets = estimatedTotalAssets();
             // NOTE: use the larger of total assets or debt outstanding to book losses properly
-            (debtPayment, loss) = liquidatePosition(
-                totalAssets > debtOutstanding ? totalAssets : debtOutstanding
-            );
+            (debtPayment, loss) = liquidatePosition(totalAssets > debtOutstanding ? totalAssets : debtOutstanding);
             // NOTE: take up any remainder here as profit
             if (debtPayment > debtOutstanding) {
                 profit = debtPayment - debtOutstanding;
@@ -603,8 +617,7 @@ abstract contract BaseStrategy {
         require(_token != address(vault), "!shares");
 
         address[] memory _protectedTokens = protectedTokens();
-        for (uint256 i; i < _protectedTokens.length; i++)
-            require(_token != _protectedTokens[i], "!protected");
+        for (uint256 i; i < _protectedTokens.length; i++) require(_token != _protectedTokens[i], "!protected");
 
         IERC20(_token).safeTransfer(owner(), IERC20(_token).balanceOf(address(this)));
     }

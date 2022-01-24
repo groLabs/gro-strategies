@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.3;
+pragma solidity 0.8.4;
 
 contract Constants {
     uint8 public constant N_COINS = 3;

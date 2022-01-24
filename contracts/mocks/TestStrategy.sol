@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.3;
+pragma solidity 0.8.4;
 pragma experimental ABIEncoderV2;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../BaseStrategy.sol";
-
 
 /*
  * This Strategy serves as both a mock Strategy for testing, and an example
@@ -17,7 +16,7 @@ contract TestStrategy is BaseStrategy {
 
     constructor(address _vault) BaseStrategy(_vault) {}
 
-    function name() external override pure returns (string memory) {
+    function name() external pure override returns (string memory) {
         return "TestStrategy";
     }
 
@@ -31,7 +30,7 @@ contract TestStrategy is BaseStrategy {
         doReentrancy = !doReentrancy;
     }
 
-    function estimatedTotalAssets() public override view returns (uint256) {
+    function estimatedTotalAssets() public view override returns (uint256) {
         // For mock, this is just everything we have
         return want.balanceOf(address(this));
     }
@@ -69,7 +68,12 @@ contract TestStrategy is BaseStrategy {
         // Whatever we have "free", consider it "invested" now
     }
 
-    function liquidatePosition(uint256 _amountNeeded) internal view override returns (uint256 _liquidatedAmount, uint256 _loss) {
+    function liquidatePosition(uint256 _amountNeeded)
+        internal
+        view
+        override
+        returns (uint256 _liquidatedAmount, uint256 _loss)
+    {
         uint256 totalDebt = vault.strategies(address(this)).totalDebt;
         uint256 totalAssets = want.balanceOf(address(this));
         if (_amountNeeded > totalAssets) {
@@ -89,7 +93,7 @@ contract TestStrategy is BaseStrategy {
         // Nothing needed here because no additional tokens/tokenized positions for mock
     }
 
-    function protectedTokens() internal override pure returns (address[] memory) {
+    function protectedTokens() internal pure override returns (address[] memory) {
         return new address[](0); // No additional tokens/tokenized positions for mock
     }
 

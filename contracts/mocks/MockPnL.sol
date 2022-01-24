@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.3;
+pragma solidity 0.8.4;
 
 import "../interfaces/IPnL.sol";
 import "../common/Constants.sol";
 
 contract MockPnL is Constants, IPnL {
-
     uint256 public override lastGvtAssets;
     uint256 public override lastPwrdAssets;
     uint256 public totalProfit;
@@ -35,7 +34,7 @@ contract MockPnL is Constants, IPnL {
     ) external override {}
 
     function utilisationRatio() external view override returns (uint256) {
-        return lastGvtAssets != 0 ? lastPwrdAssets * PERCENTAGE_DECIMAL_FACTOR / lastGvtAssets : 0;
+        return lastGvtAssets != 0 ? (lastPwrdAssets * PERCENTAGE_DECIMAL_FACTOR) / lastGvtAssets : 0;
     }
 
     function emergencyPnL() external override {}

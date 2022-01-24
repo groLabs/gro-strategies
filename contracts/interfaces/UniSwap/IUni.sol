@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.3;
+pragma solidity 0.8.4;
 
-interface IUni{
-    function getAmountsOut(
-        uint256 amountIn, 
-        address[] calldata path
-    ) external view returns (uint256[] memory amounts);
+interface IUni {
+    function getAmountsOut(uint256 amountIn, address[] calldata path) external view returns (uint256[] memory amounts);
 
     function swapExactTokensForTokens(
         uint256 amountIn,
