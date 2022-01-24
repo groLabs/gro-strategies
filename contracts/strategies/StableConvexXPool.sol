@@ -85,6 +85,10 @@ contract StableConvexXPool is BaseStrategy {
 
     address[] public dex;
 
+    event LogSetNewPool(uint256 indexed newPId, address newLPToken, address newRewardContract, address newCurve);
+    event LogSwitchDex(uint256 indexed id, address newDex);
+    event LogChangePool(uint256 indexed newPId, address newLPToken, address newRewardContract, address newCurve);
+
     constructor(address _vault, int128 wantIndex) BaseStrategy(_vault) {
         profitFactor = 1000;
         uint8 decimals = IERC20Detailed(address(want)).decimals();
@@ -101,7 +105,7 @@ contract StableConvexXPool is BaseStrategy {
         want.approve(CRV_3POOL, type(uint256).max);
     }
 
-    function switchPool(uint256 _newPId, address _newCurve) external onlyAuthorized {
+    function setNewPool(uint256 _newPId, address _newCurve) external onlyAuthorized {
         require(_newPId != pId, "setMetaPool: same id");
         (address lp, , , address reward, , bool shutdown) = Booster(BOOSTER).poolInfo(_newPId);
         require(!shutdown, "setMetaPool: pool is shutdown");
@@ -110,11 +114,13 @@ contract StableConvexXPool is BaseStrategy {
         newPId = _newPId;
         newCurve = _newCurve;
         if (CRV_3POOL_TOKEN.allowance(address(this), newCurve) == 0) {
-            CRV_3POOL_TOKEN.approve(curve, type(uint256).max);
+            CRV_3POOL_TOKEN.approve(newCurve, type(uint256).max);
         }
         if (lpToken.allowance(address(this), BOOSTER) == 0) {
             lpToken.approve(BOOSTER, type(uint256).max);
         }
+
+        emit LogSetNewPool(_newPId, lp, reward, _newCurve);
     }
 
     function switchDex(uint256 id, address newDex) external onlyAuthorized {
@@ -126,8 +132,11 @@ contract StableConvexXPool is BaseStrategy {
         } else {
             token = IERC20(CVX);
         }
-        token.approve(newDex, 0);
-        token.approve(newDex, type(uint256).max);
+
+        if (token.allowance(address(this), newDex) == 0) {
+            token.approve(newDex, type(uint256).max);
+        }
+        emit LogSwitchDex(id, newDex);
     }
 
     function name() external pure override returns (string memory) {
@@ -349,15 +358,22 @@ contract StableConvexXPool is BaseStrategy {
     }
 
     function _changePool() private {
-        pId = newPId;
-        curve = newCurve;
-        lpToken = newLPToken;
-        rewardContract = newRewardContract;
+        uint256 _newPId = newPId;
+        address _newCurve = newCurve;
+        IERC20 _newLPToken = newLPToken;
+        address _newReward = newRewardContract;
+
+        pId = _newPId;
+        curve = _newCurve;
+        lpToken = _newLPToken;
+        rewardContract = _newReward;
 
         newCurve = address(0);
         newPId = 0;
         newLPToken = IERC20(address(0));
         newRewardContract = address(0);
+
+        emit LogChangePool(_newPId, address(_newLPToken), _newReward, _newCurve);
     }
 
     function _sellBasic() private {
