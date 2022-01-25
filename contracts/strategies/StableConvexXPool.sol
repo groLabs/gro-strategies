@@ -64,6 +64,9 @@ contract StableConvexXPool is BaseStrategy {
     address public constant CRV_3POOL = address(0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7);
     IERC20 public constant CRV_3POOL_TOKEN = IERC20(address(0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490));
 
+    address public constant UNI_V3 = address(0xE592427A0AEce92De3Edee1F18E0157C05861564);
+    address public constant SUSHI = address(0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F);
+
     int128 public constant CRV3_INDEX = 1;
     uint256 public constant CRV_METAPOOL_LEN = 2;
     uint256 public constant CRV_3POOL_LEN = 3;
@@ -93,6 +96,9 @@ contract StableConvexXPool is BaseStrategy {
         profitFactor = 1000;
         uint8 decimals = IERC20Detailed(address(want)).decimals();
         debtThreshold = 1_00_000 * (uint256(10)**decimals);
+        dex = new address[](2);
+        dex[0] = UNI_V3;
+        dex[1] = SUSHI;
 
         require(
             (address(want) == DAI && wantIndex == 0) ||
@@ -109,15 +115,16 @@ contract StableConvexXPool is BaseStrategy {
         require(_newPId != pId, "setMetaPool: same id");
         (address lp, , , address reward, , bool shutdown) = Booster(BOOSTER).poolInfo(_newPId);
         require(!shutdown, "setMetaPool: pool is shutdown");
-        newLPToken = IERC20(lp);
+        IERC20 _newLPToken = IERC20(lp);
+        newLPToken = _newLPToken;
         newRewardContract = reward;
         newPId = _newPId;
         newCurve = _newCurve;
         if (CRV_3POOL_TOKEN.allowance(address(this), newCurve) == 0) {
             CRV_3POOL_TOKEN.approve(newCurve, type(uint256).max);
         }
-        if (lpToken.allowance(address(this), BOOSTER) == 0) {
-            lpToken.approve(BOOSTER, type(uint256).max);
+        if (_newLPToken.allowance(address(this), BOOSTER) == 0) {
+            _newLPToken.approve(BOOSTER, type(uint256).max);
         }
 
         emit LogSetNewPool(_newPId, lp, reward, _newCurve);

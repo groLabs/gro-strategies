@@ -70,7 +70,7 @@ interface VaultAPI {
      */
     function revokeStrategy() external;
 
-    function governance() external view returns (address);
+    function owner() external view returns (address);
 }
 
 /**
@@ -273,7 +273,7 @@ abstract contract BaseStrategy {
      * on protected functions in the Strategy.
      */
     function owner() internal view returns (address) {
-        return vault.governance();
+        return vault.owner();
     }
 
     /**
