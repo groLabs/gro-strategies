@@ -17,11 +17,14 @@ const SUSHI = "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F";
 const DUSD_PID = 17;
 const DUSD_POOL = "0x8038C01A0390a8c547446a0b2c18fc9aEFEcc10c";
 
+const UST_PID = 21;
+const UST_POOL = "0x890f4e345B1dAED0367A877a1612f86A1f86985f";
+
 const CONVEX_BOOSTER = "0xF403C135812408BFbE8713b5A23a04b3D48AAE31";
 const CONVEX_DUSD_REWARD = "0x1992b82A8cCFC8f89785129D6403b13925d6226E";
+const CONVEX_UST_REWARD = "0xd4Be1911F8a0df178d6e7fF5cE39919c273E2B7B";
 
 const CRV = "0xD533a949740bb3306d119CC777fa900bA034cd52";
-const CRV_HODLER = "";
 
 contract("convex xpool tests", function (accounts) {
     const [deployer, investor1] = accounts;
@@ -72,14 +75,6 @@ contract("convex xpool tests", function (accounts) {
         dusdRewards = await IRewards.at(CONVEX_DUSD_REWARD);
         crv = await IERC20.at(CRV);
 
-        // await hre.network.provider.request({
-        //     method: "hardhat_impersonateAccount",
-        //     params: [CRV_HODLER],
-        // });
-
-        // let ethAmount = toBN("1000000000000000000000");
-        // await hre.network.provider.send("hardhat_setBalance", [CRV_HODLER, toHex(ethAmount)]);
-
         sId = await snapshotChain();
         console.log("snaphsort id: " + sId);
     });
@@ -93,7 +88,7 @@ contract("convex xpool tests", function (accounts) {
 
     describe("dai", function () {
 
-        it.skip("list pools", async () => {
+        it("list pools", async () => {
             let booster = await Booster.at(CONVEX_BOOSTER);
             for (let i = 0; i < 68; i++) {
                 let result = await booster.poolInfo(i);
@@ -108,18 +103,7 @@ contract("convex xpool tests", function (accounts) {
             await daiVault.deposit(toBN(amount).mul(toBN(1e18)), {from: investor1});
         });
 
-        it("withdraw", async () => {
-            const amount = "3000000";
-            await setBalance("dai", investor1, amount);
-            console.log("amount0: " + (await dai.balanceOf(investor1)));
-            await daiVault.deposit(toBN(amount).mul(toBN(1e18)), {from: investor1});
-            console.log("amount1: " + (await dai.balanceOf(investor1)));
-
-            await daiVault.withdraw(toBN(amount).mul(toBN(1e18)), investor1);
-            console.log("amount2: " + (await dai.balanceOf(investor1)));
-        });
-
-        it.only("harvest & harvestTrigger", async () => {
+        it("harvest & harvestTrigger when have profit", async () => {
             const amount = "20000000";
             await setBalance("dai", investor1, amount);
             await daiVault.deposit(toBN(amount).mul(toBN(1e18)), {from: investor1});
@@ -132,7 +116,7 @@ contract("convex xpool tests", function (accounts) {
             let rewardRate = await dusdRewards.rewardRate();
             console.log('dusdRewards.rewardRate: ' + rewardRate);
 
-            let multiple = toBN(100);
+            let multiple = toBN(500);
             const value = web3.utils.padLeft(toHex(rewardRate.mul(multiple)), 64);
             await hre.ethers.provider.send("hardhat_setStorageAt", [dusdRewards.address, "0x6", value]);
 
@@ -175,6 +159,106 @@ contract("convex xpool tests", function (accounts) {
             console.log('daiVault totalAssets: ' + await daiVault.totalAssets());
         });
 
-        it("harvestTrigger", async () => {});
+        it("harvest & harvestTrigger when switch pool and have profit", async () => {
+            const amount = "20000000";
+            await setBalance("dai", investor1, amount);
+            await daiVault.deposit(toBN(amount).mul(toBN(1e18)), {from: investor1});
+
+            await daiStrategy.harvest();
+
+            console.log('daiStrategy.estimatedTotalAssets: ' + await daiStrategy.estimatedTotalAssets());
+            console.log('daiStrategy.harvestTrigger: ' + await daiStrategy.harvestTrigger(0));
+
+            let rewardRate = await dusdRewards.rewardRate();
+            console.log('dusdRewards.rewardRate: ' + rewardRate);
+
+            let multiple = toBN(500);
+            const value = web3.utils.padLeft(toHex(rewardRate.mul(multiple)), 64);
+            await hre.ethers.provider.send("hardhat_setStorageAt", [dusdRewards.address, "0x6", value]);
+
+            rewardRate = await dusdRewards.rewardRate();
+            console.log('dusdRewards.rewardRate: ' + rewardRate);
+
+            let periodFinish = await dusdRewards.periodFinish();
+            console.log('dusdRewards.periodFinish: ' + periodFinish);
+            await network.provider.request({
+                method: "evm_setNextBlockTimestamp",
+                params: [periodFinish-100],
+            });
+            await network.provider.send("evm_mine");
+
+            console.log('daiStrategy.estimatedTotalAssets: ' + await daiStrategy.estimatedTotalAssets());
+
+            let crvAmount = await crv.balanceOf(dusdRewards.address);
+            console.log('dusdRewards.CRV: ' + crvAmount);
+            crvAmount = crvAmount.mul(multiple).mul(toBN(2)).div(constants.DEFAULT_FACTOR);
+            await setBalance("crv", dusdRewards.address, crvAmount.toString(), 1);
+            crvAmount = await crv.balanceOf(dusdRewards.address);
+            console.log('dusdRewards.CRV: ' + crvAmount);
+
+            console.log('daiStrategy.harvestTrigger: ' + await daiStrategy.harvestTrigger(0));
+
+            await daiStrategy.setNewPool(21, UST_POOL);
+
+
+            await daiStrategy.harvest();
+
+
+            console.log('daiStrategy.estimatedTotalAssets: ' + await daiStrategy.estimatedTotalAssets());
+            let result = await daiVault.strategies(daiStrategy.address);
+            console.log('daiStrategy totalDebt: ' + result.totalDebt);
+            console.log('daiVault totalAssets: ' + await daiVault.totalAssets());
+
+            console.log('daiStrategy curve: ' + await daiStrategy.curve());
+            console.log('daiStrategy lpToken: ' + await daiStrategy.lpToken());
+            console.log('daiStrategy pId: ' + await daiStrategy.pId());
+            console.log('daiStrategy rewardContract: ' + await daiStrategy.rewardContract());
+        });
+
+        it("harvest & harvestTrigger when switch pool and have loss", async () => {
+            const amount = "20000000";
+            await setBalance("dai", investor1, amount);
+            await daiVault.deposit(toBN(amount).mul(toBN(1e18)), {from: investor1});
+
+            await daiStrategy.harvest();
+
+            console.log('daiStrategy.estimatedTotalAssets: ' + await daiStrategy.estimatedTotalAssets());
+            console.log('daiStrategy.harvestTrigger: ' + await daiStrategy.harvestTrigger(0));
+
+            await daiStrategy.setNewPool(21, UST_POOL);
+
+
+            await daiStrategy.harvest();
+
+
+            console.log('daiStrategy.estimatedTotalAssets: ' + await daiStrategy.estimatedTotalAssets());
+            let result = await daiVault.strategies(daiStrategy.address);
+            console.log('daiStrategy totalDebt: ' + result.totalDebt);
+            console.log('daiVault totalAssets: ' + await daiVault.totalAssets());
+
+            console.log('daiStrategy curve: ' + await daiStrategy.curve());
+            console.log('daiStrategy lpToken: ' + await daiStrategy.lpToken());
+            console.log('daiStrategy pId: ' + await daiStrategy.pId());
+            console.log('daiStrategy rewardContract: ' + await daiStrategy.rewardContract());
+        });
+
+        it.only("withdraw", async () => {
+            const amount = "20000000";
+            await setBalance("dai", investor1, amount);
+            await daiVault.deposit(toBN(amount).mul(toBN(1e18)), {from: investor1});
+
+            await daiStrategy.harvest();
+
+            console.log('daiStrategy.estimatedTotalAssets: ' + await daiStrategy.estimatedTotalAssets());
+            console.log('daiStrategy.harvestTrigger: ' + await daiStrategy.harvestTrigger(0));
+
+            await daiVault.withdraw(toBN(amount).div(toBN(10)).mul(toBN(1e18)), investor1);
+            console.log("investor1 amount: " + (await dai.balanceOf(investor1)));
+
+            console.log('daiStrategy.estimatedTotalAssets: ' + await daiStrategy.estimatedTotalAssets());
+            let result = await daiVault.strategies(daiStrategy.address);
+            console.log('daiStrategy totalDebt: ' + result.totalDebt);
+            console.log('daiVault totalAssets: ' + await daiVault.totalAssets());
+        });
     });
 });
