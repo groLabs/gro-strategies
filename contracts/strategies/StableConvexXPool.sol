@@ -7,6 +7,8 @@ import "../interfaces/ICurve.sol";
 import "../interfaces/UniSwap/IUni.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
+import "hardhat/console.sol";
+
 interface Booster {
     struct PoolInfo {
         address lptoken;
@@ -64,8 +66,8 @@ contract StableConvexXPool is BaseStrategy {
     address public constant CRV_3POOL = address(0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7);
     IERC20 public constant CRV_3POOL_TOKEN = IERC20(address(0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490));
 
-    address public constant UNI_V3 = address(0xE592427A0AEce92De3Edee1F18E0157C05861564);
-    address public constant SUSHI = address(0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F);
+    address public constant UNISWAP = address(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
+    address public constant SUSHISWAP = address(0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F);
 
     int128 public constant CRV3_INDEX = 1;
     uint256 public constant CRV_METAPOOL_LEN = 2;
@@ -97,8 +99,8 @@ contract StableConvexXPool is BaseStrategy {
         uint8 decimals = IERC20Detailed(address(want)).decimals();
         debtThreshold = 1_00_000 * (uint256(10)**decimals);
         dex = new address[](2);
-        dex[0] = UNI_V3;
-        dex[1] = SUSHI;
+        _switchDex(0, UNISWAP);
+        _switchDex(1, SUSHISWAP);
 
         require(
             (address(want) == DAI && wantIndex == 0) ||
@@ -131,6 +133,10 @@ contract StableConvexXPool is BaseStrategy {
     }
 
     function switchDex(uint256 id, address newDex) external onlyAuthorized {
+        _switchDex(id, newDex);
+    }
+
+    function _switchDex(uint256 id, address newDex) private {
         dex[id] = newDex;
 
         IERC20 token;
@@ -192,6 +198,10 @@ contract StableConvexXPool is BaseStrategy {
 
         uint256 crvValue;
         if (crv > 0) {
+            console.log("crv: %s, dex[0]: %s, toIndex: %s", crv, dex[0], toIndex);
+            address[] memory path = _getPath(CRV, toIndex);
+            console.log("path[0]: %s, path[1]: %s, path[2]: %s", path[0], path[1], path[2]);
+
             uint256[] memory crvSwap = IUni(dex[0]).getAmountsOut(crv, _getPath(CRV, toIndex));
             crvValue = crvSwap[crvSwap.length - 1];
         }
@@ -317,29 +327,31 @@ contract StableConvexXPool is BaseStrategy {
         uint256 wantBal;
         if (curve == address(0)) {
             // invest into strategy first time
+            console.log("invest into strategy first time");
             _changePool();
         } else if (newCurve != address(0)) {
+            console.log("change pool");
             _withdrawAll();
             _changePool();
             wantBal = want.balanceOf(address(this));
             total = wantBal;
         } else {
+            console.log("get profits");
             Rewards(rewardContract).getReward();
             _sellBasic();
             total = _estimatedTotalAssets(false);
             wantBal = want.balanceOf(address(this));
         }
-
         _debtPayment = _debtOutstanding;
         uint256 debt = vault.strategies(address(this)).totalDebt;
+        console.log("vault: %s", address(vault));
+        console.log("total: %s, debt: %s", total, debt);
         if (total > debt) {
             _profit = total - debt;
-
             uint256 amountToFree = _profit + _debtPayment;
             if (amountToFree > 0 && wantBal < amountToFree) {
                 _withdrawSome(amountToFree - wantBal);
                 wantBal = want.balanceOf(address(this));
-
                 if (wantBal < amountToFree) {
                     if (_profit > wantBal) {
                         _profit = wantBal;
@@ -352,11 +364,9 @@ contract StableConvexXPool is BaseStrategy {
         } else {
             _loss = debt - total;
             uint256 amountToFree = _debtPayment;
-
             if (amountToFree > 0 && wantBal < amountToFree) {
                 _withdrawSome(amountToFree - wantBal);
                 wantBal = want.balanceOf(address(this));
-
                 if (wantBal < amountToFree) {
                     _debtPayment = wantBal;
                 }
@@ -464,10 +474,12 @@ contract StableConvexXPool is BaseStrategy {
     }
 
     function _wantToETH(uint256 wantAmount) private view returns (uint256) {
-        address[] memory path = new address[](2);
-        path[0] = address(want);
-        path[1] = WETH;
-        uint256[] memory amounts = IUni(dex[0]).getAmountsOut(wantAmount, path);
-        return amounts[1];
+        if (wantAmount > 0) {
+            address[] memory path = new address[](2);
+            path[0] = address(want);
+            path[1] = WETH;
+            uint256[] memory amounts = IUni(dex[0]).getAmountsOut(wantAmount, path);
+            return amounts[1];
+        }
     }
 }

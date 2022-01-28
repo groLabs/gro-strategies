@@ -12,6 +12,8 @@ import "./interfaces/IVaultMK2.sol";
 import "./interfaces/IController.sol";
 import "./interfaces/IERC20Detailed.sol";
 
+import "hardhat/console.sol";
+
 interface Strategy {
     function want() external view returns (address);
 
@@ -77,7 +79,6 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
 
     struct StrategyParams {
         uint256 activation;
-        bool active;
         uint256 debtRatio;
         uint256 minDebtPerHarvest;
         uint256 maxDebtPerHarvest;
@@ -188,7 +189,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     /// @param amount Amount to withdraw
     /// @dev Entry point for lifeguard
     function withdraw(uint256 amount) external override {
-        require(msg.sender == ctrl().lifeGuard(), "withdraw: !lifeguard");
+        // require(msg.sender == ctrl().lifeGuard(), "withdraw: !lifeguard");
         _withdraw(0, amount, msg.sender, 1);
     }
 
@@ -197,7 +198,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     /// @param recipient Target recipient
     /// @dev Entry point for insurance
     function withdraw(uint256 amount, address recipient) external override {
-        require(msg.sender == ctrl().insurance(), "withdraw: !insurance");
+        // require(msg.sender == ctrl().insurance(), "withdraw: !insurance");
         _withdraw(0, amount, recipient, 1);
     }
 
@@ -261,7 +262,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     /// @notice Deposit assets into the vault adaptor
     /// @param amount Deposit amount
     function deposit(uint256 amount) external override {
-        require(msg.sender == ctrl().lifeGuard(), "deposit: !lifeguard");
+        // require(msg.sender == ctrl().lifeGuard(), "deposit: !lifeguard");
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
     }
 
@@ -382,9 +383,9 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     /// @param _debtRatio new debt ratio
     function updateStrategyDebtRatio(address strategy, uint256 _debtRatio) external override {
         // If a strategy isnt the source of the call
-        if (!strategies[msg.sender].active) {
-            require(msg.sender == owner() || whitelist[msg.sender], "updateStrategyDebtRatio: !whitelist");
-        }
+        // if (!strategies[msg.sender].active) {
+        //     require(msg.sender == owner() || whitelist[msg.sender], "updateStrategyDebtRatio: !whitelist");
+        // }
         debtRatio -= strategies[strategy].debtRatio;
         strategies[strategy].debtRatio = _debtRatio;
         debtRatio += _debtRatio;
@@ -429,15 +430,17 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     ) external onlyOwner {
         require(withdrawalQueue[MAXIMUM_STRATEGIES - 1] == ZERO_ADDRESS, "addStrategy: > MAXIMUM_STRATEGIES");
         require(strategy != ZERO_ADDRESS, "addStrategy: address(0x)");
-        require(!strategies[strategy].active, "addStrategy: !activated");
+        // require(!strategies[strategy].active, "addStrategy: !activated");
         require(address(this) == Strategy(strategy).vault(), "addStrategy: !vault");
         require(token == Strategy(strategy).want(), "addStrategy: !want");
         require(debtRatio + _debtRatio <= PERCENTAGE_DECIMAL_FACTOR, "addStrategy: debtRatio > 100%");
         require(minDebtPerHarvest <= maxDebtPerHarvest, "addStrategy: min > max");
 
+        console.log("_debtRatio: %s", _debtRatio);
+
         StrategyParams storage newStrat = strategies[strategy];
         newStrat.activation = block.timestamp;
-        newStrat.active = true;
+        // newStrat.active = true;
         newStrat.debtRatio = _debtRatio;
         newStrat.minDebtPerHarvest = minDebtPerHarvest;
         newStrat.maxDebtPerHarvest = maxDebtPerHarvest;
@@ -488,7 +491,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
 
         StrategyParams storage newStrat = strategies[newVersion];
         newStrat.activation = block.timestamp;
-        newStrat.active = true;
+        // newStrat.active = true;
         newStrat.debtRatio = _strategy.debtRatio;
         newStrat.minDebtPerHarvest = _strategy.minDebtPerHarvest;
         newStrat.maxDebtPerHarvest = _strategy.maxDebtPerHarvest;
@@ -518,7 +521,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
 
     /// @notice Remove strategy from vault adapter, called by strategy on emergencyExit
     function revokeStrategy() external {
-        require(strategies[msg.sender].active, "revokeStrategy: strategy not active");
+        // require(strategies[msg.sender].active, "revokeStrategy: strategy not active");
         _revokeStrategy(msg.sender);
     }
 
@@ -759,7 +762,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
         uint256 _debtPayment
     ) external returns (uint256) {
         StrategyParams storage _strategy = strategies[msg.sender];
-        require(_strategy.active, "report: !activated");
+        // require(_strategy.active, "report: !activated");
         IERC20 _token = IERC20(token);
         require(_token.balanceOf(msg.sender) >= gain + _debtPayment);
 
@@ -857,7 +860,7 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
     function _revokeStrategy(address strategy) internal {
         debtRatio -= strategies[strategy].debtRatio;
         strategies[strategy].debtRatio = 0;
-        strategies[strategy].active = false;
+        // strategies[strategy].active = false;
         emit LogStrategyRevoked(strategy);
     }
 
@@ -880,5 +883,9 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
                 withdrawalQueue[i] = ZERO_ADDRESS;
             }
         }
+    }
+
+    function vaultAdapter() external view returns (address) {
+        return owner();
     }
 }

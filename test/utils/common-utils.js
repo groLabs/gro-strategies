@@ -965,6 +965,7 @@ const tokens = {
         weth: { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', name: "Wrapped ether", symbol: "ETH", decimals: 18, mappingSlot: '0x3'  },
         lpt: { address: '0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490', name: "3Crv", symbol: "3CRV", decimals: 18, mappingSlot: '0x3'  },
         lptc: { address: '0x4f3E8F405CF5aFC05D68142F3783bDfE13811522', name: "3CrvUSDN", symbol: "3CRVUSDN", decimals: 18, mappingSlot: '0x3'  },
+        crv: { address: '0xD533a949740bb3306d119CC777fa900bA034cd52', name: "CRV", symbol: "CRV", decimals: 18, mappingSlot: '0x3'  },
 };
 
 function getBalanceOfSlotSolidity(mappingSlot, address) {
