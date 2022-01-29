@@ -20,16 +20,24 @@ const DUSD_POOL = "0x8038C01A0390a8c547446a0b2c18fc9aEFEcc10c";
 const UST_PID = 21;
 const UST_POOL = "0x890f4e345B1dAED0367A877a1612f86A1f86985f";
 
+const USDK_PID = 12;
+const USDK_POOL = "0x3E01dD8a5E1fb3481F0F589056b428Fc308AF0Fb";
+
 const CONVEX_BOOSTER = "0xF403C135812408BFbE8713b5A23a04b3D48AAE31";
 const CONVEX_DUSD_REWARD = "0x1992b82A8cCFC8f89785129D6403b13925d6226E";
 const CONVEX_UST_REWARD = "0xd4Be1911F8a0df178d6e7fF5cE39919c273E2B7B";
+const CONVEX_USDK_REWARD = "0xa50e9071aCaD20b31cd2bbe4dAa816882De82BBe";
 
 const CRV = "0xD533a949740bb3306d119CC777fa900bA034cd52";
 
 contract("convex xpool tests", function (accounts) {
     const [deployer, investor1] = accounts;
 
-    let dai, daiVault, daiStrategy, dusdRewards, crv;
+    const botLimit = toBN(0);
+    const topLimit = toBN(2).pow(toBN(256)).sub(toBN(1));
+
+    let dai, daiVault, daiStrategy, usdc, usdcVault, usdcStrategy, usdt, usdtVault, usdtStrategy,
+        mockController, mockInsurance, mockPnL, rewards, crv;
 
     let sId;
 
@@ -48,35 +56,17 @@ contract("convex xpool tests", function (accounts) {
     }
 
     beforeEach(async function () {
-        let mockController = await MockController.new();
-        let mockInsurance = await MockInsurance.new();
-        let mockPnL = await MockPnL.new();
+        sId = await snapshotChain();
+        console.log("snaphsort id: " + sId);
+
+        mockController = await MockController.new();
+        mockInsurance = await MockInsurance.new();
+        mockPnL = await MockPnL.new();
         await mockController.setInsurance(mockInsurance.address);
         await mockController.setPnL(mockPnL.address);
 
-        dai = await IERC20.at(tokens.dai.address);
-        daiVault = await VaultAdaptor.new(tokens.dai.address);
-        daiStrategy = await ConvexXPool.new(daiVault.address, 0);
-        await daiStrategy.setKeeper(daiVault.address);
-
-        await daiVault.setController(mockController.address);
-
-        const botLimit = toBN(0);
-        const topLimit = toBN(2).pow(toBN(256)).sub(toBN(1));
-
-        await daiVault.addStrategy(daiStrategy.address, 10000, botLimit, topLimit);
-
-        await daiStrategy.setNewPool(DUSD_PID, DUSD_POOL);
-        // await daiStrategy.switchDex(0, UNI_V3);
-        // await daiStrategy.switchDex(1, SUSHI);
-
-        await dai.approve(daiVault.address, toBN(2).pow(toBN(256)).sub(toBN(1)), {from: investor1});
-
-        dusdRewards = await IRewards.at(CONVEX_DUSD_REWARD);
+        rewards = await IRewards.at(CONVEX_USDK_REWARD);
         crv = await IERC20.at(CRV);
-
-        sId = await snapshotChain();
-        console.log("snaphsort id: " + sId);
     });
 
     afterEach(async function () {
@@ -86,8 +76,7 @@ contract("convex xpool tests", function (accounts) {
         }
     });
 
-    describe("dai", function () {
-
+    describe.skip("ad-hoc", function () {
         it("list pools", async () => {
             let booster = await Booster.at(CONVEX_BOOSTER);
             for (let i = 0; i < 68; i++) {
@@ -95,6 +84,22 @@ contract("convex xpool tests", function (accounts) {
                 console.log(`pool${i} lptoken: ${result[0]}, token: ${result[1]}`);
                 // console.log('result: ' + JSON.stringify(result));
             }
+        })
+    })
+
+    describe("dai", function () {
+        beforeEach(async function () {
+            dai = await IERC20.at(tokens.dai.address);
+            daiVault = await VaultAdaptor.new(tokens.dai.address);
+            daiStrategy = await ConvexXPool.new(daiVault.address, 0);
+            await daiStrategy.setKeeper(daiVault.address);
+            await daiVault.setController(mockController.address);
+
+            await daiVault.addStrategy(daiStrategy.address, 10000, botLimit, topLimit);
+            await daiStrategy.setNewPool(USDK_PID, USDK_POOL);
+            // await daiStrategy.switchDex(0, UNI_V3);
+            // await daiStrategy.switchDex(1, SUSHI);
+            await dai.approve(daiVault.address, toBN(2).pow(toBN(256)).sub(toBN(1)), {from: investor1});
         })
 
         it("deposit", async () => {
@@ -113,18 +118,18 @@ contract("convex xpool tests", function (accounts) {
             console.log('daiStrategy.estimatedTotalAssets: ' + await daiStrategy.estimatedTotalAssets());
             console.log('daiStrategy.harvestTrigger: ' + await daiStrategy.harvestTrigger(0));
 
-            let rewardRate = await dusdRewards.rewardRate();
-            console.log('dusdRewards.rewardRate: ' + rewardRate);
+            let rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
 
-            let multiple = toBN(500);
+            let multiple = toBN(50);
             const value = web3.utils.padLeft(toHex(rewardRate.mul(multiple)), 64);
-            await hre.ethers.provider.send("hardhat_setStorageAt", [dusdRewards.address, "0x6", value]);
+            await hre.ethers.provider.send("hardhat_setStorageAt", [rewards.address, "0x6", value]);
 
-            rewardRate = await dusdRewards.rewardRate();
-            console.log('dusdRewards.rewardRate: ' + rewardRate);
+            rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
 
-            let periodFinish = await dusdRewards.periodFinish();
-            console.log('dusdRewards.periodFinish: ' + periodFinish);
+            let periodFinish = await rewards.periodFinish();
+            console.log('rewards.periodFinish: ' + periodFinish);
             await network.provider.request({
                 method: "evm_setNextBlockTimestamp",
                 params: [periodFinish-100],
@@ -140,12 +145,12 @@ contract("convex xpool tests", function (accounts) {
 
             console.log('daiStrategy.estimatedTotalAssets: ' + await daiStrategy.estimatedTotalAssets());
 
-            let crvAmount = await crv.balanceOf(dusdRewards.address);
-            console.log('dusdRewards.CRV: ' + crvAmount);
+            let crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
             crvAmount = crvAmount.mul(multiple).mul(toBN(2)).div(constants.DEFAULT_FACTOR);
-            await setBalance("crv", dusdRewards.address, crvAmount.toString(), 1);
-            crvAmount = await crv.balanceOf(dusdRewards.address);
-            console.log('dusdRewards.CRV: ' + crvAmount);
+            await setBalance("crv", rewards.address, crvAmount.toString(), 1);
+            crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
 
             console.log('daiStrategy.harvestTrigger: ' + await daiStrategy.harvestTrigger(0));
 
@@ -169,18 +174,18 @@ contract("convex xpool tests", function (accounts) {
             console.log('daiStrategy.estimatedTotalAssets: ' + await daiStrategy.estimatedTotalAssets());
             console.log('daiStrategy.harvestTrigger: ' + await daiStrategy.harvestTrigger(0));
 
-            let rewardRate = await dusdRewards.rewardRate();
-            console.log('dusdRewards.rewardRate: ' + rewardRate);
+            let rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
 
             let multiple = toBN(500);
             const value = web3.utils.padLeft(toHex(rewardRate.mul(multiple)), 64);
-            await hre.ethers.provider.send("hardhat_setStorageAt", [dusdRewards.address, "0x6", value]);
+            await hre.ethers.provider.send("hardhat_setStorageAt", [rewards.address, "0x6", value]);
 
-            rewardRate = await dusdRewards.rewardRate();
-            console.log('dusdRewards.rewardRate: ' + rewardRate);
+            rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
 
-            let periodFinish = await dusdRewards.periodFinish();
-            console.log('dusdRewards.periodFinish: ' + periodFinish);
+            let periodFinish = await rewards.periodFinish();
+            console.log('rewards.periodFinish: ' + periodFinish);
             await network.provider.request({
                 method: "evm_setNextBlockTimestamp",
                 params: [periodFinish-100],
@@ -189,12 +194,12 @@ contract("convex xpool tests", function (accounts) {
 
             console.log('daiStrategy.estimatedTotalAssets: ' + await daiStrategy.estimatedTotalAssets());
 
-            let crvAmount = await crv.balanceOf(dusdRewards.address);
-            console.log('dusdRewards.CRV: ' + crvAmount);
+            let crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
             crvAmount = crvAmount.mul(multiple).mul(toBN(2)).div(constants.DEFAULT_FACTOR);
-            await setBalance("crv", dusdRewards.address, crvAmount.toString(), 1);
-            crvAmount = await crv.balanceOf(dusdRewards.address);
-            console.log('dusdRewards.CRV: ' + crvAmount);
+            await setBalance("crv", rewards.address, crvAmount.toString(), 1);
+            crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
 
             console.log('daiStrategy.harvestTrigger: ' + await daiStrategy.harvestTrigger(0));
 
@@ -242,7 +247,7 @@ contract("convex xpool tests", function (accounts) {
             console.log('daiStrategy rewardContract: ' + await daiStrategy.rewardContract());
         });
 
-        it.only("withdraw", async () => {
+        it("withdraw", async () => {
             const amount = "20000000";
             await setBalance("dai", investor1, amount);
             await daiVault.deposit(toBN(amount).mul(toBN(1e18)), {from: investor1});
@@ -261,4 +266,346 @@ contract("convex xpool tests", function (accounts) {
             console.log('daiVault totalAssets: ' + await daiVault.totalAssets());
         });
     });
+
+    describe("usdc", function () {
+        beforeEach(async function () {
+            usdc = await IERC20.at(tokens.usdc.address);
+            usdcVault = await VaultAdaptor.new(tokens.usdc.address);
+            usdcStrategy = await ConvexXPool.new(usdcVault.address, 1);
+            await usdcStrategy.setKeeper(usdcVault.address);
+
+            await usdcVault.setController(mockController.address);
+            await usdcVault.addStrategy(usdcStrategy.address, 10000, botLimit, topLimit);
+            await usdcStrategy.setNewPool(USDK_PID, USDK_POOL);
+            await usdc.approve(usdcVault.address, toBN(2).pow(toBN(256)).sub(toBN(1)), {from: investor1});
+        })
+
+        it("deposit", async () => {
+            const amount = "3000000";
+            await setBalance("usdc", investor1, amount);
+            await usdcVault.deposit(toBN(amount).mul(toBN(1e6)), {from: investor1});
+        });
+
+        it("harvest & harvestTrigger when have profit", async () => {
+            const amount = "20000000";
+            await setBalance("usdc", investor1, amount);
+            await usdcVault.deposit(toBN(amount).mul(toBN(1e6)), {from: investor1});
+
+            await usdcStrategy.harvest();
+
+            console.log('usdcStrategy.estimatedTotalAssets: ' + await usdcStrategy.estimatedTotalAssets());
+            console.log('usdcStrategy.harvestTrigger: ' + await usdcStrategy.harvestTrigger(0));
+
+            let rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
+
+            let multiple = toBN(50);
+            const value = web3.utils.padLeft(toHex(rewardRate.mul(multiple)), 64);
+            await hre.ethers.provider.send("hardhat_setStorageAt", [rewards.address, "0x6", value]);
+
+            rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
+
+            let periodFinish = await rewards.periodFinish();
+            console.log('rewards.periodFinish: ' + periodFinish);
+            await network.provider.request({
+                method: "evm_setNextBlockTimestamp",
+                params: [periodFinish-100],
+            });
+            await network.provider.send("evm_mine");
+
+            console.log('usdcStrategy.estimatedTotalAssets: ' + await usdcStrategy.estimatedTotalAssets());
+
+            let crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
+            crvAmount = crvAmount.mul(multiple).mul(toBN(2)).div(constants.DEFAULT_FACTOR);
+            await setBalance("crv", rewards.address, crvAmount.toString(), 1);
+            crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
+
+            console.log('usdcStrategy.harvestTrigger: ' + await usdcStrategy.harvestTrigger(0));
+
+
+            await usdcStrategy.harvest();
+
+
+            console.log('usdcStrategy.estimatedTotalAssets: ' + await usdcStrategy.estimatedTotalAssets());
+            let result = await usdcVault.strategies(usdcStrategy.address);
+            console.log('usdcStrategy totalDebt: ' + result.totalDebt);
+            console.log('usdcVault totalAssets: ' + await usdcVault.totalAssets());
+        });
+
+        it("harvest & harvestTrigger when switch pool and have profit", async () => {
+            const amount = "20000000";
+            await setBalance("usdc", investor1, amount);
+            await usdcVault.deposit(toBN(amount).mul(toBN(1e6)), {from: investor1});
+
+            await usdcStrategy.harvest();
+
+            console.log('usdcStrategy.estimatedTotalAssets: ' + await usdcStrategy.estimatedTotalAssets());
+            console.log('usdcStrategy.harvestTrigger: ' + await usdcStrategy.harvestTrigger(0));
+
+            let rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
+
+            let multiple = toBN(500);
+            const value = web3.utils.padLeft(toHex(rewardRate.mul(multiple)), 64);
+            await hre.ethers.provider.send("hardhat_setStorageAt", [rewards.address, "0x6", value]);
+
+            rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
+
+            let periodFinish = await rewards.periodFinish();
+            console.log('rewards.periodFinish: ' + periodFinish);
+            await network.provider.request({
+                method: "evm_setNextBlockTimestamp",
+                params: [periodFinish-100],
+            });
+            await network.provider.send("evm_mine");
+
+            console.log('usdcStrategy.estimatedTotalAssets: ' + await usdcStrategy.estimatedTotalAssets());
+
+            let crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
+            crvAmount = crvAmount.mul(multiple).mul(toBN(2)).div(constants.DEFAULT_FACTOR);
+            await setBalance("crv", rewards.address, crvAmount.toString(), 1);
+            crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
+
+            console.log('usdcStrategy.harvestTrigger: ' + await usdcStrategy.harvestTrigger(0));
+
+            await usdcStrategy.setNewPool(21, UST_POOL);
+
+
+            await usdcStrategy.harvest();
+
+
+            console.log('usdcStrategy.estimatedTotalAssets: ' + await usdcStrategy.estimatedTotalAssets());
+            let result = await usdcVault.strategies(usdcStrategy.address);
+            console.log('usdcStrategy totalDebt: ' + result.totalDebt);
+            console.log('usdcVault totalAssets: ' + await usdcVault.totalAssets());
+
+            console.log('usdcStrategy curve: ' + await usdcStrategy.curve());
+            console.log('usdcStrategy lpToken: ' + await usdcStrategy.lpToken());
+            console.log('usdcStrategy pId: ' + await usdcStrategy.pId());
+            console.log('usdcStrategy rewardContract: ' + await usdcStrategy.rewardContract());
+        });
+
+        it("harvest & harvestTrigger when switch pool and have loss", async () => {
+            const amount = "20000000";
+            await setBalance("usdc", investor1, amount);
+            await usdcVault.deposit(toBN(amount).mul(toBN(1e6)), {from: investor1});
+
+            await usdcStrategy.harvest();
+
+            console.log('usdcStrategy.estimatedTotalAssets: ' + await usdcStrategy.estimatedTotalAssets());
+            console.log('usdcStrategy.harvestTrigger: ' + await usdcStrategy.harvestTrigger(0));
+
+            await usdcStrategy.setNewPool(21, UST_POOL);
+
+
+            await usdcStrategy.harvest();
+
+
+            console.log('usdcStrategy.estimatedTotalAssets: ' + await usdcStrategy.estimatedTotalAssets());
+            let result = await usdcVault.strategies(usdcStrategy.address);
+            console.log('usdcStrategy totalDebt: ' + result.totalDebt);
+            console.log('usdcVault totalAssets: ' + await usdcVault.totalAssets());
+
+            console.log('usdcStrategy curve: ' + await usdcStrategy.curve());
+            console.log('usdcStrategy lpToken: ' + await usdcStrategy.lpToken());
+            console.log('usdcStrategy pId: ' + await usdcStrategy.pId());
+            console.log('usdcStrategy rewardContract: ' + await usdcStrategy.rewardContract());
+        });
+
+        it("withdraw", async () => {
+            const amount = "20000000";
+            await setBalance("usdc", investor1, amount);
+            await usdcVault.deposit(toBN(amount).mul(toBN(1e6)), {from: investor1});
+
+            await usdcStrategy.harvest();
+
+            console.log('usdcStrategy.estimatedTotalAssets: ' + await usdcStrategy.estimatedTotalAssets());
+            console.log('usdcStrategy.harvestTrigger: ' + await usdcStrategy.harvestTrigger(0));
+
+            await usdcVault.withdraw(toBN(amount).div(toBN(10)).mul(toBN(1e6)), investor1);
+            console.log("investor1 amount: " + (await usdc.balanceOf(investor1)));
+
+            console.log('usdcStrategy.estimatedTotalAssets: ' + await usdcStrategy.estimatedTotalAssets());
+            let result = await usdcVault.strategies(usdcStrategy.address);
+            console.log('usdcStrategy totalDebt: ' + result.totalDebt);
+            console.log('usdcVault totalAssets: ' + await usdcVault.totalAssets());
+        });
+    });
+
+    describe("usdt", function () {
+        beforeEach(async function () {
+            usdt = await IERC20.at(tokens.usdt.address);
+            usdtVault = await VaultAdaptor.new(tokens.usdt.address);
+            usdtStrategy = await ConvexXPool.new(usdtVault.address, 2);
+            await usdtStrategy.setKeeper(usdtVault.address);
+
+            await usdtVault.setController(mockController.address);
+            await usdtVault.addStrategy(usdtStrategy.address, 10000, botLimit, topLimit);
+            await usdtStrategy.setNewPool(USDK_PID, USDK_POOL);
+            await usdt.approve(usdtVault.address, toBN(2).pow(toBN(256)).sub(toBN(1)), {from: investor1});
+        })
+
+        it("deposit", async () => {
+            const amount = "3000000";
+            await setBalance("usdt", investor1, amount);
+            await usdtVault.deposit(toBN(amount).mul(toBN(1e6)), {from: investor1});
+        });
+
+        it("harvest & harvestTrigger when have profit", async () => {
+            const amount = "20000000";
+            await setBalance("usdt", investor1, amount);
+            await usdtVault.deposit(toBN(amount).mul(toBN(1e6)), {from: investor1});
+
+            await usdtStrategy.harvest();
+
+            console.log('usdtStrategy.estimatedTotalAssets: ' + await usdtStrategy.estimatedTotalAssets());
+            console.log('usdtStrategy.harvestTrigger: ' + await usdtStrategy.harvestTrigger(0));
+
+            let rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
+
+            let multiple = toBN(50);
+            const value = web3.utils.padLeft(toHex(rewardRate.mul(multiple)), 64);
+            await hre.ethers.provider.send("hardhat_setStorageAt", [rewards.address, "0x6", value]);
+
+            rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
+
+            let periodFinish = await rewards.periodFinish();
+            console.log('rewards.periodFinish: ' + periodFinish);
+            await network.provider.request({
+                method: "evm_setNextBlockTimestamp",
+                params: [periodFinish-100],
+            });
+            await network.provider.send("evm_mine");
+
+            console.log('usdtStrategy.estimatedTotalAssets: ' + await usdtStrategy.estimatedTotalAssets());
+
+            let crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
+            crvAmount = crvAmount.mul(multiple).mul(toBN(2)).div(constants.DEFAULT_FACTOR);
+            await setBalance("crv", rewards.address, crvAmount.toString(), 1);
+            crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
+
+            console.log('usdtStrategy.harvestTrigger: ' + await usdtStrategy.harvestTrigger(0));
+
+
+            await usdtStrategy.harvest();
+
+
+            console.log('usdtStrategy.estimatedTotalAssets: ' + await usdtStrategy.estimatedTotalAssets());
+            let result = await usdtVault.strategies(usdtStrategy.address);
+            console.log('usdtStrategy totalDebt: ' + result.totalDebt);
+            console.log('usdtVault totalAssets: ' + await usdtVault.totalAssets());
+        });
+
+        it("harvest & harvestTrigger when switch pool and have profit", async () => {
+            const amount = "20000000";
+            await setBalance("usdt", investor1, amount);
+            await usdtVault.deposit(toBN(amount).mul(toBN(1e6)), {from: investor1});
+
+            await usdtStrategy.harvest();
+
+            console.log('usdtStrategy.estimatedTotalAssets: ' + await usdtStrategy.estimatedTotalAssets());
+            console.log('usdtStrategy.harvestTrigger: ' + await usdtStrategy.harvestTrigger(0));
+
+            let rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
+
+            let multiple = toBN(500);
+            const value = web3.utils.padLeft(toHex(rewardRate.mul(multiple)), 64);
+            await hre.ethers.provider.send("hardhat_setStorageAt", [rewards.address, "0x6", value]);
+
+            rewardRate = await rewards.rewardRate();
+            console.log('rewards.rewardRate: ' + rewardRate);
+
+            let periodFinish = await rewards.periodFinish();
+            console.log('rewards.periodFinish: ' + periodFinish);
+            await network.provider.request({
+                method: "evm_setNextBlockTimestamp",
+                params: [periodFinish-100],
+            });
+            await network.provider.send("evm_mine");
+
+            console.log('usdtStrategy.estimatedTotalAssets: ' + await usdtStrategy.estimatedTotalAssets());
+
+            let crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
+            crvAmount = crvAmount.mul(multiple).mul(toBN(2)).div(constants.DEFAULT_FACTOR);
+            await setBalance("crv", rewards.address, crvAmount.toString(), 1);
+            crvAmount = await crv.balanceOf(rewards.address);
+            console.log('rewards.CRV: ' + crvAmount);
+
+            console.log('usdtStrategy.harvestTrigger: ' + await usdtStrategy.harvestTrigger(0));
+
+            await usdtStrategy.setNewPool(21, UST_POOL);
+
+
+            await usdtStrategy.harvest();
+
+
+            console.log('usdtStrategy.estimatedTotalAssets: ' + await usdtStrategy.estimatedTotalAssets());
+            let result = await usdtVault.strategies(usdtStrategy.address);
+            console.log('usdtStrategy totalDebt: ' + result.totalDebt);
+            console.log('usdtVault totalAssets: ' + await usdtVault.totalAssets());
+
+            console.log('usdtStrategy curve: ' + await usdtStrategy.curve());
+            console.log('usdtStrategy lpToken: ' + await usdtStrategy.lpToken());
+            console.log('usdtStrategy pId: ' + await usdtStrategy.pId());
+            console.log('usdtStrategy rewardContract: ' + await usdtStrategy.rewardContract());
+        });
+
+        it("harvest & harvestTrigger when switch pool and have loss", async () => {
+            const amount = "20000000";
+            await setBalance("usdt", investor1, amount);
+            await usdtVault.deposit(toBN(amount).mul(toBN(1e6)), {from: investor1});
+
+            await usdtStrategy.harvest();
+
+            console.log('usdtStrategy.estimatedTotalAssets: ' + await usdtStrategy.estimatedTotalAssets());
+            console.log('usdtStrategy.harvestTrigger: ' + await usdtStrategy.harvestTrigger(0));
+
+            await usdtStrategy.setNewPool(21, UST_POOL);
+
+
+            await usdtStrategy.harvest();
+
+
+            console.log('usdtStrategy.estimatedTotalAssets: ' + await usdtStrategy.estimatedTotalAssets());
+            let result = await usdtVault.strategies(usdtStrategy.address);
+            console.log('usdtStrategy totalDebt: ' + result.totalDebt);
+            console.log('usdtVault totalAssets: ' + await usdtVault.totalAssets());
+
+            console.log('usdtStrategy curve: ' + await usdtStrategy.curve());
+            console.log('usdtStrategy lpToken: ' + await usdtStrategy.lpToken());
+            console.log('usdtStrategy pId: ' + await usdtStrategy.pId());
+            console.log('usdtStrategy rewardContract: ' + await usdtStrategy.rewardContract());
+        });
+
+        it("withdraw", async () => {
+            const amount = "20000000";
+            await setBalance("usdt", investor1, amount);
+            await usdtVault.deposit(toBN(amount).mul(toBN(1e6)), {from: investor1});
+
+            await usdtStrategy.harvest();
+
+            console.log('usdtStrategy.estimatedTotalAssets: ' + await usdtStrategy.estimatedTotalAssets());
+            console.log('usdtStrategy.harvestTrigger: ' + await usdtStrategy.harvestTrigger(0));
+
+            await usdtVault.withdraw(toBN(amount).div(toBN(10)).mul(toBN(1e6)), investor1);
+            console.log("investor1 amount: " + (await usdt.balanceOf(investor1)));
+
+            console.log('usdtStrategy.estimatedTotalAssets: ' + await usdtStrategy.estimatedTotalAssets());
+            let result = await usdtVault.strategies(usdtStrategy.address);
+            console.log('usdtStrategy totalDebt: ' + result.totalDebt);
+            console.log('usdtVault totalAssets: ' + await usdtVault.totalAssets());
+        });
+    })
 });

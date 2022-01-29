@@ -113,7 +113,7 @@ contract StableConvexXPool is BaseStrategy {
         );
         WANT_INDEX = wantIndex;
 
-        want.approve(CRV_3POOL, type(uint256).max);
+        want.safeApprove(CRV_3POOL, type(uint256).max);
     }
 
     function setNewPool(uint256 _newPId, address _newCurve) external onlyAuthorized {
@@ -126,10 +126,10 @@ contract StableConvexXPool is BaseStrategy {
         newPId = _newPId;
         newCurve = _newCurve;
         if (CRV_3POOL_TOKEN.allowance(address(this), newCurve) == 0) {
-            CRV_3POOL_TOKEN.approve(newCurve, type(uint256).max);
+            CRV_3POOL_TOKEN.safeApprove(newCurve, type(uint256).max);
         }
         if (_newLPToken.allowance(address(this), BOOSTER) == 0) {
-            _newLPToken.approve(BOOSTER, type(uint256).max);
+            _newLPToken.safeApprove(BOOSTER, type(uint256).max);
         }
 
         emit LogSetNewPool(_newPId, lp, reward, _newCurve);
