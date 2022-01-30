@@ -12,8 +12,6 @@ import "./interfaces/IVaultMK2.sol";
 import "./interfaces/IController.sol";
 import "./interfaces/IERC20Detailed.sol";
 
-import "hardhat/console.sol";
-
 interface Strategy {
     function want() external view returns (address);
 
@@ -435,8 +433,6 @@ contract VaultAdaptorMK2 is Controllable, Constants, Whitelist, IVaultMK2 {
         require(token == Strategy(strategy).want(), "addStrategy: !want");
         require(debtRatio + _debtRatio <= PERCENTAGE_DECIMAL_FACTOR, "addStrategy: debtRatio > 100%");
         require(minDebtPerHarvest <= maxDebtPerHarvest, "addStrategy: min > max");
-
-        console.log("_debtRatio: %s", _debtRatio);
 
         StrategyParams storage newStrat = strategies[strategy];
         newStrat.activation = block.timestamp;
