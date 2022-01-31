@@ -3,7 +3,7 @@
 networks:
   default: development
   development:
-      explorer:  https://api.snowtrace.io/api
+      explorer: https://api.snowtrace.io/api
       cmd: ganache-cli
       cmd_settings:
           host: http://127.0.0.1
@@ -13,6 +13,7 @@ networks:
           evm_version: istanbul
           mnemonic: brownie
           fork: avax-main
+          #fork: https://api.avax.network/ext/bc/C/rpc@9511431
           unlock:
               - 0xc05195e2EE3e4Bb49fA989EAA39B88A5001d52BD #ahgov
               - 0x2D6B7235DB3659C1751f342F6C80A49727bb1a1D #tbank 

@@ -27,10 +27,7 @@ let account, referal, bot, kovan, mainnet, ropsten, goerli;
 if (process.env['DEPLOY_MAIN'] === '1') {
   let keystoreD = JSON.parse(fs.readFileSync("deployment"));
   let keyD = accounts.decrypt(keystoreD, process.env['PPASS']);
-  let keystoreB = JSON.parse(fs.readFileSync("harvest_bot"));
-  let keyB = accounts.decrypt(keystoreB, process.env['BOT']);
   account = keyD.privateKey
-  bot = keyB.privateKey
   referal = process.env['REF']
 } else if (process.env['DEPLOY_MAIN'] === '2') {
   let keystoreD = JSON.parse(fs.readFileSync("deployment_avax"));
@@ -61,7 +58,7 @@ module.exports = {
       gas: 12000000,
       blockGasLimit: 12000000,
       // url: 'http://localhost:9650/ext/bc/C/rpc',
-      initialBaseFeePerGas: 325000000000,
+      initialBaseFeePerGas: 0,
       // chainId: 43112,
     },
     fuji: {

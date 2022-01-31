@@ -286,7 +286,6 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
             if (change == true) break;
         }
         // run harvest
-
         await usdcAdaptor.strategyHarvest(0, {from: governance})
         expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(toBN(0));
         // active position should == 0
@@ -753,6 +752,66 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         return revertChain(sid);
     })
 
+    it.only('Should report gains/losses only after selling all tokens', async () => {
+        const sid = await snapshotChain();
+        await usdc.approve(router, constants.MAX_UINT256, {from: investor1});
+        await avax.approve(router, constants.MAX_UINT256, {from: investor1});
+
+        const amount = '1000000';
+        await setBalance('usdc', investor1, amount);
+        await usdcAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        const position = await primaryStrategy.activePosition();
+
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        let change;
+        const ava_swap = toBN(1E4).mul(toBN(1E18));
+        const usd_swap = toBN(5E4).mul(toBN(1E6));
+        while (true) {
+            await setBalance('avax', investor1, '10000');
+            await expect(swap(ava_swap, [tokens.avax.address, tokens.usdc.address])).to.eventually.be.fulfilled;
+            await expect(swap(usd_swap, [tokens.usdc.address, tokens.avax.address])).to.eventually.be.fulfilled;
+            change = await primaryStrategy.volatilityCheck();
+            if (change == true) break;
+        }
+        const swap_amount = await usdc.balanceOf(investor1);
+
+        strat_data = await usdcAdaptor.strategies(primaryStrategy.address);
+        console.log('----------------------------------1')
+        console.log('active pos ' + await primaryStrategy.activePosition());
+        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
+        console.log('strat gain ' + strat_data.totalGain)
+        console.log('strat loss ' + strat_data.totalLoss)
+        console.log('strat debt ' + strat_data.totalDebt)
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        await web3.eth.sendTransaction({to: primaryStrategy.address, from: accounts[0], value: toWei('10', 'ether')})
+
+        await expect(swap(swap_amount, [tokens.usdc.address, tokens.avax.address])).to.eventually.be.fulfilled;
+        console.log('----------------------------------2')
+        strat_data = await usdcAdaptor.strategies(primaryStrategy.address);
+        console.log('active pos ' + await primaryStrategy.activePosition());
+        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
+        console.log('strat gain ' + strat_data.totalGain)
+        console.log('strat loss ' + strat_data.totalLoss)
+        console.log('strat debt ' + strat_data.totalDebt)
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        console.log('----------------------------------3')
+        strat_data = await usdcAdaptor.strategies(primaryStrategy.address);
+        console.log('active pos ' + await primaryStrategy.activePosition());
+        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
+        console.log('strat gain ' + strat_data.totalGain)
+        console.log('strat loss ' + strat_data.totalLoss)
+        console.log('strat debt ' + strat_data.totalDebt)
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        console.log('----------------------------------4')
+        strat_data = await usdcAdaptor.strategies(primaryStrategy.address);
+        console.log('active pos ' + await primaryStrategy.activePosition());
+        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
+        console.log('strat gain ' + strat_data.totalGain)
+        console.log('strat loss ' + strat_data.totalLoss)
+        console.log('strat debt ' + strat_data.totalDebt)
+    })
+
     it('Should not open up a new position when holding more than 1 AVAX', async () => {
         const sid = await snapshotChain();
         await usdc.approve(router, constants.MAX_UINT256, {from: investor1});
@@ -780,9 +839,6 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         await usdcAdaptor.strategyHarvest(0, {from: governance});
         lastExposure = await primaryStrategy.getExposure();
 
-        // give more avax to the strategy to ensure we have > 1 avax
-        await web3.eth.sendTransaction({to: primaryStrategy.address, from: accounts[0], value: toWei('200', 'ether')})
-
         // we should have an active position
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
         // we close it
@@ -792,9 +848,11 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
         let avaxBal = await web3.eth.getBalance(primaryStrategy.address)
 
+        // give more avax to the strategy to ensure we have > 1 avax
+        await web3.eth.sendTransaction({to: primaryStrategy.address, from: accounts[0], value: toWei('200', 'ether')})
         // harvest shouldnt open a position
         await usdcAdaptor.strategyHarvest(0, {from: governance});
-        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.lt(avaxBal);
+        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.gt(toBN(0));
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
 
         lastExposure = await primaryStrategy.getExposure();
@@ -861,7 +919,6 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         let currentExposure = lastExposure[2][1];
 
         await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
-        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
         // first harvest
         await usdcAdaptor.strategyHarvest(0, {from: governance});
         lastExposure = await primaryStrategy.getExposure();
@@ -879,7 +936,20 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         currentExposure = lastExposure[2][1];
 
         await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
-        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
+        // second harvest
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
+        lastExposure = await primaryStrategy.getExposure();
+
+        // over exposed and short
+        assert.equal(lastExposure[0], true);
+        assert.equal(lastExposure[1], true);
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(_assets);
+        _assets = await primaryStrategy.estimatedTotalAssets();
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.lt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
+        await expect(lastExposure[2][1]).to.be.a.bignumber.lt(currentExposure);
+        currentExposure = lastExposure[2][1];
+
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
         // second harvest
         await usdcAdaptor.strategyHarvest(0, {from: governance});
         lastExposure = await primaryStrategy.getExposure();
@@ -895,23 +965,11 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
 
         await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
         // third harvest
-        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
         await usdcAdaptor.strategyHarvest(0, {from: governance});
 
         lastExposure = await primaryStrategy.getExposure();
 
-        // over exposed and short
-        assert.equal(lastExposure[0], true);
-        assert.equal(lastExposure[1], true);
-        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(_assets);
-        _assets = await primaryStrategy.estimatedTotalAssets();
-        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.lt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
-
-        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
-        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
-        // forth harvest
-        await usdcAdaptor.strategyHarvest(0, {from: governance});
-        lastExposure = await primaryStrategy.getExposure();
+        // back inside exposure bands
         assert.equal(lastExposure[0], false);
         assert.equal(lastExposure[1], false);
         await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(_assets);
@@ -919,7 +977,6 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.gt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
 
         await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.false;
-        trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
         return revertChain(sid);
     })
   })
@@ -970,6 +1027,7 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
             change = await primaryStrategy.volatilityCheck();
             if (change == true) break;
         }
+        // first harvest shouldnt sell anything
         await usdcAdaptor.strategyHarvest(0, {from: governance});
         // revert the swap
         const userWant = await usdc.balanceOf(investor1);
@@ -978,11 +1036,12 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
         await network.provider.send("evm_mine");
-        // eth and sushi sold off
+        await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.gt(toBN(0));
+        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.gt(toBN(0));
+        // eth and sushi sold off during second harvest
+        await usdcAdaptor.strategyHarvest(0, {from: governance});
         await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
         await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
-        await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.equal(toBN(0));
-        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(toBN(0), toBN(1E15));
 
         return revertChain(sid);
     })
@@ -1104,7 +1163,7 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         return expect(primaryStrategy.name()).to.eventually.equal('AHv2 strategy');
     })
 
-    it('Should revert if a an AMM check fails', async () => {
+    it('Should revert if an AMM check fails', async () => {
         const amount = '10000';
         const amount_norm_usdc = toBN(amount).mul(toBN(1E6));
         const amount_norm_weth = toBN(amount).mul(toBN(1E18));
@@ -1124,6 +1183,7 @@ contract('Alpha homora test usdc/avax joe pool', function (accounts) {
         await primaryStrategy.setStrategyThresholds(0, 10, 50, 5000, {from: governance});
 
         await primaryStrategy.setAmmThreshold(sushiToken, 0, {from: governance});
+        // first harvest should not sell anything
         return expect(usdcAdaptor.strategyHarvest(0, {from: governance})).to.eventually.be.rejectedWith('!ammCheck');
     })
 

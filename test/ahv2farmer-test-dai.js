@@ -692,6 +692,66 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         return revertChain(sid);
     })
 
+    it.only('Should report gains/losses only after selling all tokens', async () => {
+        const sid = await snapshotChain();
+        await dai.approve(router, constants.MAX_UINT256, {from: investor1});
+        await avax.approve(router, constants.MAX_UINT256, {from: investor1});
+
+        const amount = '1000000';
+        await setBalance('dai', investor1, amount);
+        await daiAdaptor.deposit(toBN(amount).mul(toBN(1E6)), {from: investor1})
+        await daiAdaptor.strategyHarvest(0, {from: governance});
+        const position = await primaryStrategy.activePosition();
+
+        await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.gt(toBN(0));
+        let change;
+        const ava_swap = toBN(1E4).mul(toBN(1E18));
+        const usd_swap = toBN(5E4).mul(toBN(1E6));
+        while (true) {
+            await setBalance('avax', investor1, '10000');
+            await expect(swap(ava_swap, [tokens.avax.address, tokens.dai.address])).to.eventually.be.fulfilled;
+            await expect(swap(usd_swap, [tokens.dai.address, tokens.avax.address])).to.eventually.be.fulfilled;
+            change = await primaryStrategy.volatilityCheck();
+            if (change == true) break;
+        }
+        const swap_amount = await dai.balanceOf(investor1);
+
+        strat_data = await daiAdaptor.strategies(primaryStrategy.address);
+        console.log('----------------------------------1')
+        console.log('active pos ' + await primaryStrategy.activePosition());
+        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
+        console.log('strat gain ' + strat_data.totalGain)
+        console.log('strat loss ' + strat_data.totalLoss)
+        console.log('strat debt ' + strat_data.totalDebt)
+        await daiAdaptor.strategyHarvest(0, {from: governance});
+        await web3.eth.sendTransaction({to: primaryStrategy.address, from: accounts[0], value: toWei('10', 'ether')})
+
+        await expect(swap(swap_amount, [tokens.dai.address, tokens.avax.address])).to.eventually.be.fulfilled;
+        console.log('----------------------------------2')
+        strat_data = await daiAdaptor.strategies(primaryStrategy.address);
+        console.log('active pos ' + await primaryStrategy.activePosition());
+        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
+        console.log('strat gain ' + strat_data.totalGain)
+        console.log('strat loss ' + strat_data.totalLoss)
+        console.log('strat debt ' + strat_data.totalDebt)
+        await daiAdaptor.strategyHarvest(0, {from: governance});
+        console.log('----------------------------------3')
+        strat_data = await daiAdaptor.strategies(primaryStrategy.address);
+        console.log('active pos ' + await primaryStrategy.activePosition());
+        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
+        console.log('strat gain ' + strat_data.totalGain)
+        console.log('strat loss ' + strat_data.totalLoss)
+        console.log('strat debt ' + strat_data.totalDebt)
+        await daiAdaptor.strategyHarvest(0, {from: governance});
+        console.log('----------------------------------4')
+        strat_data = await daiAdaptor.strategies(primaryStrategy.address);
+        console.log('active pos ' + await primaryStrategy.activePosition());
+        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
+        console.log('strat gain ' + strat_data.totalGain)
+        console.log('strat loss ' + strat_data.totalLoss)
+        console.log('strat debt ' + strat_data.totalDebt)
+    })
+
     it('Should not open up a new position when holding more than 1 AVAX', async () => {
         const sid = await snapshotChain();
         await dai.approve(router, constants.MAX_UINT256, {from: investor1});
@@ -911,14 +971,14 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         const userWant = await dai.balanceOf(investor1);
         await swap(userWant, [tokens.dai.address, tokens.avax.address])
         await expect(primaryStrategy.activePosition()).to.eventually.be.a.bignumber.equal(toBN(0));
+        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.gt(toBN(0));
+        await daiAdaptor.strategyHarvest(0, {from: governance});
         const alphaDataClose = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebtClose = await homoraBank.methods.getPositionDebts(position).call()
         await network.provider.send("evm_mine");
         // eth and sushi sold off
         await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
         await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.eq(toBN(0));
-        await expect(sushi.balanceOf(primaryStrategy.address)).to.eventually.be.a.bignumber.equal(toBN(0));
-        await expect(web3.eth.getBalance(primaryStrategy.address)).to.eventually.be.a.bignumber.closeTo(toBN(0), toBN(1E15));
 
         return revertChain(sid);
     })

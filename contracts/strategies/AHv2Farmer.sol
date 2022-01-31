@@ -180,7 +180,7 @@ contract AHv2Farmer is BaseStrategy {
     address public immutable tokenB;
 
     // poolId for masterchef - can be commented out for non sushi spells
-    uint256 public immutable poolId;
+    uint256 immutable public poolId;
 
     // Min amount of tokens to open/adjust positions or sell
     uint256 public minWant;
@@ -420,10 +420,15 @@ contract AHv2Farmer is BaseStrategy {
      *//////////////////////////
 
     /*
-     * @notice Calculate strategies current loss, profit and amount if can repay
+     * @notice Calculate strategies current loss, profit and amount it can repay
      * @param _debtOutstanding amount of debt remaining to be repaid
+     * @dev to avoid large slippage, we will always try to sell of AVAX in chunks, this
+     *  will block any other harvest actions as long as their is avax to sell in this strategy.
+     *  This is expected behavior, and we only expect to report gains/losses after all has been
+     *  sold - There is also no possiblity for users to frontrun this, as any unrealized loss would
+     *  be shifted on to a user if they were to try to withdraw assets from the strategy (see _liquidatePosition)
      */
-    function _prepareReturn(uint256 _debtOutstanding)
+    function _prepareReturn(uint256 _debtOutstanding, uint256 _positionId)
         internal
         returns (
             uint256 profit,
@@ -436,7 +441,11 @@ contract AHv2Farmer is BaseStrategy {
         // only try to realize profits if there is no active position
         _sellAVAX();
         _sellYieldToken();
-        positionId = activePosition;
+        // As we potentially will sell of avax in chunks to avoid high level of slippage it is
+        //  important that we dont engage with our positions or report gains/losses until we
+        //  have sold of all excess avax (likely to happen if a position is closed when long).
+        if (address(this).balance > 0) return (0, 0, 0, _positionId);
+        positionId = _positionId;
         if (positionId == 0 || _debtOutstanding > 0) {
             balance = want.balanceOf(address(this));
             if (balance < _debtOutstanding && positionId > 0) {
@@ -466,7 +475,6 @@ contract AHv2Farmer is BaseStrategy {
                 } else {
                     loss = debt - balance;
                 }
-
             }
         }
     }
@@ -545,16 +553,15 @@ contract AHv2Farmer is BaseStrategy {
      *      this strategy should act conservative and atempt to repay any outstanding amount
      */
     function _adjustPosition(
-        uint256 _positionId, 
-        bool _check,
-        uint256 _remainingLimit
+        uint256 _positionId
     ) internal {
         //emergency exit is dealt with in liquidatePosition
         if (emergencyExit) {
             return;
         }
 
-        if (_check) {
+        (bool check, uint256 remainingLimit) = _checkPositionHealth(_positionId);
+        if (check) {
             _closePosition(_positionId, 0, false, true);
             return;
         }
@@ -563,8 +570,8 @@ contract AHv2Farmer is BaseStrategy {
 
         // check if the current want amount is large enough to justify opening/adding
         // to an existing position, else do nothing
-        if (wantBal > _remainingLimit) wantBal = _remainingLimit;
-        if (wantBal >= minWant && address(this).balance < 1E18) {
+        if (wantBal > remainingLimit) wantBal = remainingLimit;
+        if (wantBal >= minWant && address(this).balance == 0) {
             if (_positionId == 0) {
                 _openPosition(true, 0, wantBal);
             } else {
@@ -586,8 +593,8 @@ contract AHv2Farmer is BaseStrategy {
             uint256[] memory lpPosition;
             uint256 collateral = positions[_positionId].collateral;
             bool short;
-            (_check, short, lpPosition) = _calcAVAXExposure(_positionId, collateral);
-            if (_check) {
+            (check, short, lpPosition) = _calcAVAXExposure(_positionId, collateral);
+            if (check) {
                 _closePosition(_positionId, lpPosition[1], !short, short);
             }
         }
@@ -1369,7 +1376,6 @@ contract AHv2Farmer is BaseStrategy {
 
         // Check if position needs to be closed before accounting
         uint256 positionId = activePosition;
-        (bool adjustFirst, uint256 remainingLimit) = _checkPositionHealth(positionId);
         if (emergencyExit) {
             // Free up as much capital as possible
             (uint256 totalAssets, ) = _estimatedTotalAssets(positionId);
@@ -1386,10 +1392,7 @@ contract AHv2Farmer is BaseStrategy {
         } else {
             require(_ammCheck(decimals, address(want)), "!ammCheck");
             // Free up returns for Vault to pull
-            if (adjustFirst) {
-                _adjustPosition(positionId, adjustFirst, remainingLimit);
-            }
-            (profit, loss, debtPayment, positionId) = _prepareReturn(debtOutstanding);
+            (profit, loss, debtPayment, positionId) = _prepareReturn(debtOutstanding, activePosition);
         }
         // Allow Vault to take up to the "harvested" balance of this contract,
         // which is the amount it has earned since the last time it reported to
@@ -1397,9 +1400,7 @@ contract AHv2Farmer is BaseStrategy {
         debtOutstanding = vault.report(profit, loss, debtPayment);
 
         // Check if free returns are left, and re-invest them
-        if (!adjustFirst) {
-            _adjustPosition(positionId, adjustFirst, remainingLimit);
-        }
+        _adjustPosition(positionId);
         emit LogHarvested(profit, loss, debtPayment, debtOutstanding);
     }
 
