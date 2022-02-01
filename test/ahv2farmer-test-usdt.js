@@ -847,7 +847,7 @@ contract('Alpha homora test usdt/avax joe pool', function (accounts) {
         return revertChain(sid);
     })
 
-    it.only('Should report gains/losses only after selling all tokens', async () => {
+    it('Should report gains/losses only after selling all tokens', async () => {
         const sid = await snapshotChain();
         await usdt.approve(router, constants.MAX_UINT256, {from: investor1});
         await avax.approve(router, constants.MAX_UINT256, {from: investor1});

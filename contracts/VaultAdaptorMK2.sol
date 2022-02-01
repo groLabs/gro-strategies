@@ -847,6 +847,7 @@ contract VaultAdaptorMK2 is
             }
             uint256 finalBalance = _token.balanceOf(address(this));
             if (value > finalBalance) {
+                totalLoss = totalLoss + value - finalBalance;
                 value = finalBalance;
             }
 

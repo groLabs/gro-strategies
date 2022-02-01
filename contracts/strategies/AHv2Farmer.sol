@@ -1345,7 +1345,7 @@ contract AHv2Farmer is BaseStrategy {
                 return true;
             }
         }
-        if (address(this).balance > 0) return true;
+        if (address(this).balance > 5E17) return true;
         return false;
     }
 
