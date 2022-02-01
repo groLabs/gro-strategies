@@ -846,11 +846,8 @@ contract VaultAdaptorMK2 is
                 totalDebt -= withdrawn;
             }
             uint256 finalBalance = _token.balanceOf(address(this));
-            // If we dont have enough assets to cover the withdrawal, lower it
-            //      to what we have, this should technically never happen
             if (value > finalBalance) {
                 value = finalBalance;
-                shares = _sharesForAmount(value + totalLoss);
             }
 
             require(
