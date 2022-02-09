@@ -7,8 +7,6 @@ import "../interfaces/ICurve.sol";
 import "../interfaces/UniSwap/IUni.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import "hardhat/console.sol";
-
 interface Booster {
     struct PoolInfo {
         address lptoken;
@@ -171,12 +169,9 @@ contract StableConvexXPool is BaseStrategy {
         uint256 lpAmount = Rewards(rewardContract).balanceOf(address(this));
         uint256 crv3Amount = ICurveMetaPool(curve).calc_withdraw_one_coin(lpAmount, CRV3_INDEX);
         estimated = ICurve3Pool(CRV_3POOL).calc_withdraw_one_coin(crv3Amount, WANT_INDEX);
-        console.log("lp estimated: %s", estimated);
         estimated += want.balanceOf(address(this));
-        console.log("lp+want estimated: %s", estimated);
         if (includeReward) {
             estimated += _claimableBasic(TO_WANT);
-            console.log("lp+want+claimable estimated: %s", estimated);
         }
     }
 
@@ -285,9 +280,7 @@ contract StableConvexXPool is BaseStrategy {
 
     function _withdrawSome(uint256 _amount) private returns (uint256) {
         uint256 lpAmount = wantToLp(_amount);
-        console.log("withdraw amount: %s, lpAmount: %s", _amount, lpAmount);
         lpAmount = lpAmount + (lpAmount * slippageRecover) / 10000;
-        console.log("adjusted lpAmount: %s", lpAmount);
         uint256 poolBal = Rewards(rewardContract).balanceOf(address(this));
 
         if (poolBal < lpAmount) {
@@ -296,7 +289,6 @@ contract StableConvexXPool is BaseStrategy {
 
         uint256 before = want.balanceOf(address(this));
 
-        console.log("want before: %s", before);
 
         // withdraw from convex
         Rewards(rewardContract).withdrawAndUnwrap(lpAmount, false);
@@ -313,7 +305,6 @@ contract StableConvexXPool is BaseStrategy {
         minAmount = minAmount - ((minAmount * (9995)) / (10000));
         ICurve3Deposit(CRV_3POOL).remove_liquidity_one_coin(lpAmount, WANT_INDEX, minAmount);
 
-        console.log("withdrawn amount: %s", want.balanceOf(address(this)) - before);
 
         return want.balanceOf(address(this)) - before;
     }
@@ -323,15 +314,11 @@ contract StableConvexXPool is BaseStrategy {
         amountsCRV3[uint256(int256(WANT_INDEX))] = amount;
 
         uint256 crv3Amount = ICurve3Pool(CRV_3POOL).calc_token_amount(amountsCRV3, false);
-        console.log("crv3Amount false: %s", crv3Amount);
-        console.log("crv3Amount true: %s", ICurve3Pool(CRV_3POOL).calc_token_amount(amountsCRV3, true));
 
         uint256[CRV_METAPOOL_LEN] memory amountsMP;
         amountsMP[uint256(int256(CRV3_INDEX))] = crv3Amount;
 
         lpAmount = ICurveMetaPool(curve).calc_token_amount(amountsMP, false);
-        console.log("lpAmount false: %s", lpAmount);
-        console.log("lpAmount true: %s", ICurveMetaPool(curve).calc_token_amount(amountsMP, true));
     }
 
     function prepareReturn(uint256 _debtOutstanding)
@@ -349,50 +336,35 @@ contract StableConvexXPool is BaseStrategy {
         uint256 debt = vault.strategies(address(this)).totalDebt;
         if (curve == address(0)) {
             // invest into strategy first time
-            console.log("invest into strategy first time");
             _changePool();
             return (0, 0, 0);
         } else if (newCurve != address(0)) {
-            console.log("change pool");
 
-            console.log("estimate with claimable: %s", _estimatedTotalAssets(true));
-            console.log("estimate without claimable: %s", _estimatedTotalAssets(false));
 
             beforeTotal = _estimatedTotalAssets(true);
-            console.log("total1: %s", beforeTotal);
             _withdrawAll();
             _changePool();
             wantBal = want.balanceOf(address(this));
             total = wantBal;
-            console.log("total2: %s", total);
 
             if (beforeTotal < debt) {
                 total = Math.max(beforeTotal, total);
-                console.log("beforeTotal < debt, new total: %s", total);
             } else if (beforeTotal > debt && total < debt) {
                 total = debt;
-                console.log("total < debt, new total: %s", total);
             }
         } else {
-            console.log("get profits");
             Rewards(rewardContract).getReward();
             _sellBasic();
             total = _estimatedTotalAssets(false);
             wantBal = want.balanceOf(address(this));
         }
         _debtPayment = _debtOutstanding;
-        console.log("total: %s, debt: %s", total, debt);
         if (total > debt) {
             _profit = total - debt;
-            console.log("first profit: %s", _profit);
             uint256 amountToFree = _profit + _debtPayment;
-            console.log("first amountToFree: %s", amountToFree);
-            console.log("first wantBal: %s", wantBal);
             if (amountToFree > 0 && wantBal < amountToFree) {
-                console.log("before total: %s", total);
                 _withdrawSome(amountToFree - wantBal);
                 total = _estimatedTotalAssets(false);
-                console.log("after total: %s", total);
                 wantBal = want.balanceOf(address(this));
                 if (total <= debt) {
                     _profit = 0;
@@ -400,9 +372,7 @@ contract StableConvexXPool is BaseStrategy {
                 } else {
                     _profit = total - debt;
                 }
-                console.log("second profit: %s", _profit);
                 amountToFree = _profit + _debtPayment;
-                console.log("second amountToFree: %s", amountToFree);
                 if (wantBal < amountToFree) {
                     if (_profit > wantBal) {
                         _profit = wantBal;
