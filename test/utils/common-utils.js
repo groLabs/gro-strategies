@@ -966,9 +966,9 @@ const tokens = {
 };
 
 const vaults = {
-    daiVault_p: { address: '0xA36fb886B458688C05616DbDB819Eb34b6FbbBa3', name: "Gro DAI.e LAB", symbol: "groDAI.e", decimals: 18, mappingSlot: '0x9' },
-    usdcVault_p: { address: '0x2388977399CE436Cf902d43A75C6d078898c0F33', name: "Gro USDC.e LAB", symbol: "groUSDC.e", decimals: 6, mappingSlot: '0x9' },
-    usdtVault_p: { address: '0x8dbd821B96498a8a7a05024b23D6b58c8a0DF98C', name: "Gro USDT.e LAB", symbol: "groUSDT.e", decimals: 6, mappingSlot: '0x9' },
+    daiVault_p: { address: '0x6063597B9356B246E706Fd6A48C780F897e3ef55', name: "Gro DAI.e LAB", symbol: "groDAI.e", decimals: 18, mappingSlot: '0x9' },
+    usdcVault_p: { address: '0x2Eb05cfFA24309b9aaf300392A4D8Db745d4E592', name: "Gro USDC.e LAB", symbol: "groUSDC.e", decimals: 6, mappingSlot: '0x9' },
+    usdtVault_p: { address: '0x6EF44077a1F5e10cDfcCc30EFb7dCdb1d5475581', name: "Gro USDT.e LAB", symbol: "groUSDT.e", decimals: 6, mappingSlot: '0x9' },
     daiVault_i: { address: '0x514c3230F0b1C93e29Ea59fe8da3cEf0d4f1e0b7', name: "Gro DAI.e LAB", symbol: "groDAI.e", decimals: 18, mappingSlot: '0x9' },
     usdcVault_i: { address: '0xBDEc31c3386481585afF7B38cA200cBF597Cb96D', name: "Gro USDC.e LAB", symbol: "groUSDC.e", decimals: 6, mappingSlot: '0x9' },
     usdtVault_i: { address: '0x3e3Cb9cfD469bC9abC5b8a95e4Ffe5299B8e28cA', name: "Gro USDT.e LAB", symbol: "groUSDT.e", decimals: 6, mappingSlot: '0x9' },
