@@ -97,7 +97,7 @@ contract("convex xpool tests", function (accounts) {
             console.log(`daiVault token ${await daiVault.token()} dai ${dai.address}`)
             daiStrategy = await ConvexXPool.new(daiVault.address, 0);
             await daiStrategy.setKeeper(daiVault.address);
-            await daiStrategy.setSlippage(40);
+            await daiStrategy.setSlippage(50);
             // await daiVault.setController(mockController.address);
 
             await daiVault.addStrategy(daiStrategy.address, 10000, botLimit, topLimit);

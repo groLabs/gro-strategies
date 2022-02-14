@@ -312,11 +312,8 @@ contract StableConvexXPool is BaseStrategy {
         // remove liquidity from 3pool
         lpAmount = CRV_3POOL_TOKEN.balanceOf(address(this));
 
-        uint256 vp = ICurve3Pool(CRV_3POOL).get_virtual_price();
-        uint256 minAmount = (_amount * 1E18) / vp;
-        minAmount = minAmount - (minAmount * slippage) / 10000;
+        uint256 minAmount = _amount - (_amount * slippage) / 10000;
         ICurve3Deposit(CRV_3POOL).remove_liquidity_one_coin(lpAmount, WANT_INDEX, minAmount);
-
 
         return want.balanceOf(address(this)) - before;
     }
