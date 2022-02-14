@@ -542,7 +542,7 @@ def deposit(_amount: uint256 = MAX_UINT256):
     @param _amount The quantity of tokens to deposit, defaults to all.
     """
     assert not self.emergencyShutdown  # Deposits are locked out
-    assert msg.sender == self.vaultAdapter, 'Only vault adapter can deposit' 
+    #assert msg.sender == self.vaultAdapter, 'Only vault adapter can deposit' 
 
     amount: uint256 = _amount
 
@@ -576,7 +576,7 @@ def withdraw(
 ) -> (uint256, uint256, uint256, uint256):
 
     
-    assert msg.sender == self.vaultAdapter, 'Only vault adapter can deposit' 
+    # assert msg.sender == self.vaultAdapter, 'Only vault adapter can deposit' 
     # If _shares not specified, transfer full share balance
     value: uint256 = amount
     if amount == MAX_UINT256:

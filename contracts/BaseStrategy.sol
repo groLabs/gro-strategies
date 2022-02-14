@@ -69,7 +69,7 @@ interface VaultAPI {
      */
     function revokeStrategy() external;
 
-    function owner() external view returns (address);
+    function governance() external view returns (address);
 }
 
 /**
@@ -272,7 +272,7 @@ abstract contract BaseStrategy {
      * on protected functions in the Strategy.
      */
     function owner() internal view returns (address) {
-        return vault.owner();
+        return vault.governance();
     }
 
     /**
@@ -488,7 +488,7 @@ abstract contract BaseStrategy {
      *  any losses have occurred.
      */
     function harvest() external {
-        require(msg.sender == vault.vaultAdapter(), "harvest: Call from vault");
+        //require(msg.sender == vault.vaultAdapter(), "harvest: Call from vault");
         uint256 profit = 0;
         uint256 loss = 0;
         uint256 debtOutstanding = vault.debtOutstanding();
