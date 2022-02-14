@@ -177,8 +177,10 @@ contract StableConvexXPool is BaseStrategy {
 
     function _estimatedTotalAssets(bool includeReward) private view returns (uint256 estimated) {
         uint256 lpAmount = Rewards(rewardContract).balanceOf(address(this));
-        uint256 crv3Amount = ICurveMetaPool(curve).calc_withdraw_one_coin(lpAmount, CRV3_INDEX);
-        estimated = ICurve3Pool(CRV_3POOL).calc_withdraw_one_coin(crv3Amount, WANT_INDEX);
+        if (lpAmount > 0) {
+            uint256 crv3Amount = ICurveMetaPool(curve).calc_withdraw_one_coin(lpAmount, CRV3_INDEX);
+            estimated = ICurve3Pool(CRV_3POOL).calc_withdraw_one_coin(crv3Amount, WANT_INDEX);
+        }
         estimated += want.balanceOf(address(this));
         if (includeReward) {
             estimated += _claimableBasic(TO_WANT);
