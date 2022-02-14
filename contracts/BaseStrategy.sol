@@ -488,6 +488,7 @@ abstract contract BaseStrategy {
      *  any losses have occurred.
      */
     function harvest() external {
+        // removed for testing purposes
         //require(msg.sender == vault.vaultAdapter(), "harvest: Call from vault");
         uint256 profit = 0;
         uint256 loss = 0;

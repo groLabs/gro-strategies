@@ -88,11 +88,15 @@ contract StableConvexXPool is BaseStrategy {
 
     address[] public dex;
 
-    uint256 public slippageRecover;
+    uint256 public slippageRecover = 2;
+    uint256 public slippage = 10;
 
     event LogSetNewPool(uint256 indexed newPId, address newLPToken, address newRewardContract, address newCurve);
     event LogSwitchDex(uint256 indexed id, address newDex);
+    event LogSetNewDex(uint256 indexed id, address newDex);
     event LogChangePool(uint256 indexed newPId, address newLPToken, address newRewardContract, address newCurve);
+    event LogSetNewSlippageRecover(uint256 slippage);
+    event LogSetNewSlippage(uint256 slippage);
 
     constructor(address _vault, int128 wantIndex) BaseStrategy(_vault) {
         profitFactor = 1000;
@@ -101,7 +105,6 @@ contract StableConvexXPool is BaseStrategy {
         dex = new address[](2);
         _switchDex(0, UNISWAP);
         _switchDex(1, SUSHISWAP);
-        slippageRecover = 2;
 
         require(
             (address(want) == DAI && wantIndex == 0) ||
@@ -135,10 +138,17 @@ contract StableConvexXPool is BaseStrategy {
 
     function switchDex(uint256 id, address newDex) external onlyAuthorized {
         _switchDex(id, newDex);
+        emit LogSetNewDex(id, newDex);
     }
 
-    function setSlippageRecover(uint256 value) external onlyAuthorized {
-        slippageRecover = value;
+    function setSlippageRecover(uint256 _slippage) external onlyAuthorized {
+        slippageRecover = _slippage;
+        emit LogSetNewSlippageRecover(_slippage);
+    }
+
+    function setSlippage(uint256 _slippage) external onlyAuthorized {
+        slippage = _slippage;
+        emit LogSetNewSlippage(_slippage);
     }
 
     function _switchDex(uint256 id, address newDex) private {
@@ -239,18 +249,18 @@ contract StableConvexXPool is BaseStrategy {
             uint256[CRV_3POOL_LEN] memory amountsCRV3;
             amountsCRV3[uint256(int256(WANT_INDEX))] = wantBal;
 
-            uint256 minAmount = ICurve3Pool(CRV_3POOL).calc_token_amount(amountsCRV3, true);
-            minAmount = minAmount - ((minAmount * (9995)) / (10000));
-            ICurve3Deposit(CRV_3POOL).add_liquidity(amountsCRV3, minAmount);
+            ICurve3Deposit(CRV_3POOL).add_liquidity(amountsCRV3, 0);
 
             uint256 crv3Bal = CRV_3POOL_TOKEN.balanceOf(address(this));
             if (crv3Bal > 0) {
                 uint256[CRV_METAPOOL_LEN] memory amountsMP;
                 amountsMP[uint256(int256(CRV3_INDEX))] = crv3Bal;
+                ICurveMetaPool _meta = ICurveMetaPool(curve);
 
-                minAmount = ICurveMetaPool(curve).calc_token_amount(amountsMP, true);
-                minAmount = minAmount - ((minAmount * (9995)) / (10000));
-                ICurveMetaPool(curve).add_liquidity(amountsMP, minAmount);
+                uint256 vp = _meta.get_virtual_price();
+                uint256 minAmount = (wantBal * 1E18) / vp;
+                minAmount = minAmount - (minAmount * slippage) / 10000;
+                _meta.add_liquidity(amountsMP, minAmount);
 
                 uint256 lpBal = lpToken.balanceOf(address(this));
                 if (lpBal > 0) {
@@ -295,14 +305,14 @@ contract StableConvexXPool is BaseStrategy {
 
         // remove liquidity from metapool
         lpAmount = lpToken.balanceOf(address(this));
-        uint256 minAmount = ICurveMetaPool(curve).calc_withdraw_one_coin(lpAmount, CRV3_INDEX);
-        minAmount = minAmount - ((minAmount * (9995)) / (10000));
-        ICurveMetaPool(curve).remove_liquidity_one_coin(lpAmount, CRV3_INDEX, minAmount);
+        ICurveMetaPool(curve).remove_liquidity_one_coin(lpAmount, CRV3_INDEX, 0);
 
         // remove liquidity from 3pool
         lpAmount = CRV_3POOL_TOKEN.balanceOf(address(this));
-        minAmount = ICurve3Pool(CRV_3POOL).calc_withdraw_one_coin(lpAmount, WANT_INDEX);
-        minAmount = minAmount - ((minAmount * (9995)) / (10000));
+
+        uint256 vp = ICurve3Pool(CRV_3POOL).get_virtual_price();
+        uint256 minAmount = (_amount * 1E18) / vp;
+        minAmount = minAmount - (minAmount * slippage) / 10000;
         ICurve3Deposit(CRV_3POOL).remove_liquidity_one_coin(lpAmount, WANT_INDEX, minAmount);
 
 
@@ -453,14 +463,16 @@ contract StableConvexXPool is BaseStrategy {
 
         // remove liquidity from metapool
         uint256 lpAmount = lpToken.balanceOf(address(this));
-        uint256 minAmount = ICurveMetaPool(curve).calc_withdraw_one_coin(lpAmount, CRV3_INDEX);
-        minAmount = minAmount - ((minAmount * (9995)) / (10000));
-        ICurveMetaPool(curve).remove_liquidity_one_coin(lpAmount, CRV3_INDEX, minAmount);
+        ICurveMetaPool _meta = ICurveMetaPool(curve);
+        uint256 vp = _meta.get_virtual_price();
+        _meta.remove_liquidity_one_coin(lpAmount, CRV3_INDEX, 0);
+
+        // calc min amounts
+        uint256 minAmount = (lpAmount * vp) / 1E18;
+        minAmount = (minAmount - (minAmount * slippage) / 10000) / (1E18 / 10 ** IERC20Detailed(address(want)).decimals());
 
         // remove liquidity from 3pool
         lpAmount = CRV_3POOL_TOKEN.balanceOf(address(this));
-        minAmount = ICurve3Pool(CRV_3POOL).calc_withdraw_one_coin(lpAmount, WANT_INDEX);
-        minAmount = minAmount - ((minAmount * (9995)) / (10000));
         ICurve3Deposit(CRV_3POOL).remove_liquidity_one_coin(lpAmount, WANT_INDEX, minAmount);
     }
 
