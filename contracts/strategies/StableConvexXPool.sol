@@ -151,6 +151,10 @@ contract StableConvexXPool is BaseStrategy {
         emit LogSetNewSlippage(_slippage);
     }
 
+    function forceWithdraw() external onlyAuthorized {
+        _withdrawAll();
+    }
+
     function _switchDex(uint256 id, address newDex) private {
         dex[id] = newDex;
 
@@ -299,8 +303,9 @@ contract StableConvexXPool is BaseStrategy {
             lpAmount = poolBal;
         }
 
-        uint256 before = want.balanceOf(address(this));
+        if (poolBal == 0) return 0;
 
+        uint256 before = want.balanceOf(address(this));
 
         // withdraw from convex
         Rewards(rewardContract).withdrawAndUnwrap(lpAmount, false);
@@ -348,8 +353,6 @@ contract StableConvexXPool is BaseStrategy {
             _changePool();
             return (0, 0, 0);
         } else if (newCurve != address(0)) {
-
-
             beforeTotal = _estimatedTotalAssets(true);
             _withdrawAll();
             _changePool();
@@ -468,7 +471,9 @@ contract StableConvexXPool is BaseStrategy {
 
         // calc min amounts
         uint256 minAmount = (lpAmount * vp) / 1E18;
-        minAmount = (minAmount - (minAmount * slippage) / 10000) / (1E18 / 10 ** IERC20Detailed(address(want)).decimals());
+        minAmount =
+            (minAmount - (minAmount * slippage) / 10000) /
+            (1E18 / 10**IERC20Detailed(address(want)).decimals());
 
         // remove liquidity from 3pool
         lpAmount = CRV_3POOL_TOKEN.balanceOf(address(this));
