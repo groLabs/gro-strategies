@@ -14,19 +14,21 @@ const { constants } = require('./utils/constants');
 const UNISWAP = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
 const SUSHI = "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F";
 
+const OUSD_PID = 56;
+const OUSD_POOL = "0x87650D7bbfC3A9F10587d7778206671719d9910D";
+
 const FRAX_PID = 32;
 const FRAX_POOL = "0xd632f22692FaC7611d2AA1C0D552930D43CAEd3B";
 
-const UST_PID = 21;
-const UST_POOL = "0x890f4e345B1dAED0367A877a1612f86A1f86985f";
+const MUSD_PID = 14;
+const MUSD_POOL = "0x8474DdbE98F5aA3179B3B3F5942D724aFcdec9f6";
 
-const USDP_PID = 28;
-const USDP_POOL = "0x42d7025938bEc20B69cBae5A77421082407f053A";
+const UST_POOL = "0x890f4e345B1dAED0367A877a1612f86A1f86985f";
 
 const CONVEX_BOOSTER = "0xF403C135812408BFbE8713b5A23a04b3D48AAE31";
 const CONVEX_FRAX_REWARD = "0xB900EF131301B307dB5eFcbed9DBb50A3e209B2e";
-const CONVEX_UST_REWARD = "0xd4Be1911F8a0df178d6e7fF5cE39919c273E2B7B";
-const CONVEX_USDP_REWARD = "0x24DfFd1949F888F91A0c8341Fc98a3F280a782a8";
+const CONVEX_OUSD_REWARD = "0x7D536a737C13561e0D2Decf1152a653B4e615158";
+const CONVEX_MUSD_REWARD = "0xDBFa6187C79f4fE4Cda20609E75760C5AaE88e52";
 
 const CRV = "0xD533a949740bb3306d119CC777fa900bA034cd52";
 
@@ -65,7 +67,6 @@ contract("convex xpool tests", function (accounts) {
         await mockController.setInsurance(mockInsurance.address);
         await mockController.setPnL(mockPnL.address);
 
-        rewards = await IRewards.at(CONVEX_USDP_REWARD);
         crv = await IERC20.at(CRV);
     });
 
@@ -101,10 +102,11 @@ contract("convex xpool tests", function (accounts) {
             // await daiVault.setController(mockController.address);
 
             await daiVault.addStrategy(daiStrategy.address, 10000, botLimit, topLimit);
-            await daiStrategy.setNewPool(USDP_PID, USDP_POOL);
+            await daiStrategy.setNewPool(MUSD_PID, MUSD_POOL);
             // await daiStrategy.switchDex(0, UNI_V3);
             // await daiStrategy.switchDex(1, SUSHI);
             await dai.approve(daiVault.address, toBN(2).pow(toBN(256)).sub(toBN(1)), {from: investor1});
+            rewards = await IRewards.at(CONVEX_MUSD_REWARD);
         })
 
         it("deposit", async () => {
@@ -280,12 +282,13 @@ contract("convex xpool tests", function (accounts) {
             await usdcVault.setDepositLimit(toBN(2).pow(toBN(256)).sub(toBN(1)));
             usdcStrategy = await ConvexXPool.new(usdcVault.address, 1);
             await usdcStrategy.setKeeper(usdcVault.address);
-            await usdcStrategy.setSlippage(10);
+            await usdcStrategy.setSlippage(50);
 
             // await usdcVault.setController(mockController.address);
             await usdcVault.addStrategy(usdcStrategy.address, 10000, botLimit, topLimit);
-            await usdcStrategy.setNewPool(USDP_PID, USDP_POOL);
+            await usdcStrategy.setNewPool(OUSD_PID, OUSD_POOL);
             await usdc.approve(usdcVault.address, toBN(2).pow(toBN(256)).sub(toBN(1)), {from: investor1});
+            rewards = await IRewards.at(CONVEX_OUSD_REWARD);
         })
 
         it("deposit", async () => {
@@ -454,13 +457,14 @@ contract("convex xpool tests", function (accounts) {
             await usdtVault.setDepositLimit(toBN(2).pow(toBN(256)).sub(toBN(1)));
             usdtStrategy = await ConvexXPool.new(usdtVault.address, 2);
             await usdtStrategy.setKeeper(usdtVault.address);
-            await usdtStrategy.setSlippage(10);
+            await usdtStrategy.setSlippage(50);
 
             // await usdtVault.setController(mockController.address);
             await usdtVault.addStrategy(usdtStrategy.address, 10000, botLimit, topLimit);
-            await usdtStrategy.setNewPool(USDP_PID, USDP_POOL);
+            await usdtStrategy.setNewPool(FRAX_PID, FRAX_POOL);
             await usdt.approve(usdtVault.address, 0, {from: investor1});
             await usdt.approve(usdtVault.address, toBN(2).pow(toBN(256)).sub(toBN(1)), {from: investor1});
+            rewards = await IRewards.at(CONVEX_FRAX_REWARD);
         })
 
         it("deposit", async () => {

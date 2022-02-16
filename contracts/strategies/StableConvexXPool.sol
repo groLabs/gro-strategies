@@ -88,7 +88,7 @@ contract StableConvexXPool is BaseStrategy {
 
     address[] public dex;
 
-    uint256 public slippageRecover = 2;
+    uint256 public slippageRecover = 3;
     uint256 public slippage = 10;
 
     event LogSetNewPool(uint256 indexed newPId, address newLPToken, address newRewardContract, address newCurve);
@@ -180,15 +180,17 @@ contract StableConvexXPool is BaseStrategy {
     }
 
     function _estimatedTotalAssets(bool includeReward) private view returns (uint256 estimated) {
-        uint256 lpAmount = Rewards(rewardContract).balanceOf(address(this));
-        if (lpAmount > 0) {
-            uint256 crv3Amount = ICurveMetaPool(curve).calc_withdraw_one_coin(lpAmount, CRV3_INDEX);
-            estimated = ICurve3Pool(CRV_3POOL).calc_withdraw_one_coin(crv3Amount, WANT_INDEX);
+        if (rewardContract != address(0)) {
+            uint256 lpAmount = Rewards(rewardContract).balanceOf(address(this));
+            if (lpAmount > 0) {
+                uint256 crv3Amount = ICurveMetaPool(curve).calc_withdraw_one_coin(lpAmount, CRV3_INDEX);
+                estimated = ICurve3Pool(CRV_3POOL).calc_withdraw_one_coin(crv3Amount, WANT_INDEX);
+            }
+            if (includeReward) {
+                estimated += _claimableBasic(TO_WANT);
+            }
         }
         estimated += want.balanceOf(address(this));
-        if (includeReward) {
-            estimated += _claimableBasic(TO_WANT);
-        }
     }
 
     uint256 constant totalCliffs = 100;
@@ -264,7 +266,8 @@ contract StableConvexXPool is BaseStrategy {
                 ICurveMetaPool _meta = ICurveMetaPool(curve);
 
                 uint256 vp = _meta.get_virtual_price();
-                uint256 minAmount = (wantBal * 1E18) / vp;
+                uint256 minAmount = (wantBal * (1E36 / 10**IERC20Detailed(address(want)).decimals())) / vp;
+
                 minAmount = minAmount - (minAmount * slippage) / 10000;
                 _meta.add_liquidity(amountsMP, minAmount);
 
