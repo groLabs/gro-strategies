@@ -103,7 +103,7 @@ interface StrategyAPI {
 
 /**
  * @title Yearn Base Strategy
- * @author yearn.finance
+ * @author orig. yearn.finance, modified by gro-protocol
  * @notice
  *  BaseStrategy implements all of the required functionality to interoperate
  *  closely with the Vault contract. This contract should be inherited and the
@@ -488,7 +488,6 @@ abstract contract BaseStrategy {
      *  any losses have occurred.
      */
     function harvest() external {
-        // removed for testing purposes
         //require(msg.sender == vault.vaultAdapter(), "harvest: Call from vault");
         uint256 profit = 0;
         uint256 loss = 0;

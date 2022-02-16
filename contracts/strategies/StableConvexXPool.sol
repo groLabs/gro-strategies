@@ -7,6 +7,7 @@ import "../interfaces/ICurve.sol";
 import "../interfaces/UniSwap/IUni.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
+/// Convex booster interface
 interface Booster {
     struct PoolInfo {
         address lptoken;
@@ -37,6 +38,7 @@ interface Booster {
     ) external returns (bool);
 }
 
+/// Convex rewards interface
 interface Rewards {
     function balanceOf(address account) external view returns (uint256);
 
@@ -49,9 +51,19 @@ interface Rewards {
     function getReward() external returns (bool);
 }
 
+/** @title StableConvexXPool
+*   @notice Convex strategy based of yearns convex contract that allows usage of one of the 3 pool
+*       stables as want, rather than a metapool lp token. This strategy can swap between meta pool
+*       and convex strategies to opimize yield/risk, and routes all assets through the following flow:
+*           3crv => metaLp => convex.
+*/
 contract StableConvexXPool is BaseStrategy {
     using SafeERC20 for IERC20;
+    /*///////////////////////////////////////////////////////////////
+                            CONTRACT VARIABLES
+    //////////////////////////////////////////////////////////////*/
 
+    // Contract addresses
     address public constant BOOSTER = address(0xF403C135812408BFbE8713b5A23a04b3D48AAE31);
 
     address public constant CVX = address(0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B);
@@ -64,22 +76,26 @@ contract StableConvexXPool is BaseStrategy {
     address public constant CRV_3POOL = address(0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7);
     IERC20 public constant CRV_3POOL_TOKEN = IERC20(address(0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490));
 
+    // Dexes for selling reward tokens
     address public constant UNISWAP = address(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
     address public constant SUSHISWAP = address(0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F);
 
+    // meta pool token layout: [minor stable, 3Crv]
     int128 public constant CRV3_INDEX = 1;
     uint256 public constant CRV_METAPOOL_LEN = 2;
+    // 3pool token layout: [dai, usdc, usdt]
     uint256 public constant CRV_3POOL_LEN = 3;
 
     uint256 public constant TO_ETH = 0;
     uint256 public constant TO_WANT = 1;
 
+    // Want tokens index in 3 pool
     int128 public immutable WANT_INDEX;
 
-    address public curve;
-    IERC20 public lpToken;
-    uint256 public pId;
-    address public rewardContract;
+    address public curve; // meta pool
+    IERC20 public lpToken; // meta pool lp token
+    uint256 public pId; // convex lp token pid
+    address public rewardContract; // convex reward contract for lp token
 
     uint256 public newPId;
     address public newCurve;
@@ -87,10 +103,17 @@ contract StableConvexXPool is BaseStrategy {
     address public newRewardContract;
 
     address[] public dex;
+    uint256 constant totalCliffs = 100;
+    uint256 constant maxSupply = 1e8 * 1e18;
+    uint256 constant reductionPerCliff = 1e5 * 1e18;
 
-    uint256 public slippageRecover = 3;
-    uint256 public slippage = 10;
+    // when withdrawing we try to withdraw an additional x BP to cover withdrawal fees etc
+    uint256 public slippageRecover = 3; 
+    uint256 public slippage = 10; // how much slippage to we accept
 
+    /*///////////////////////////////////////////////////////////////
+                            EVENTS
+    //////////////////////////////////////////////////////////////*/
     event LogSetNewPool(uint256 indexed newPId, address newLPToken, address newRewardContract, address newCurve);
     event LogSwitchDex(uint256 indexed id, address newDex);
     event LogSetNewDex(uint256 indexed id, address newDex);
@@ -117,6 +140,13 @@ contract StableConvexXPool is BaseStrategy {
         want.safeApprove(CRV_3POOL, type(uint256).max);
     }
 
+    /*///////////////////////////////////////////////////////////////
+                            SETTERS
+    //////////////////////////////////////////////////////////////*/
+
+    /** @notice Set a new curve meta pool and convex target for the strategy
+    *   @dev The migration will take place during the next harvest cycle (see prepareReturn)
+    */
     function setNewPool(uint256 _newPId, address _newCurve) external onlyAuthorized {
         require(_newPId != pId, "setMetaPool: same id");
         (address lp, , , address reward, , bool shutdown) = Booster(BOOSTER).poolInfo(_newPId);
@@ -136,25 +166,33 @@ contract StableConvexXPool is BaseStrategy {
         emit LogSetNewPool(_newPId, lp, reward, _newCurve);
     }
 
-    function switchDex(uint256 id, address newDex) external onlyAuthorized {
-        _switchDex(id, newDex);
-        emit LogSetNewDex(id, newDex);
-    }
-
+    /** @notice Set how much to lp tokens to withdraw in excess 
+    *   @dev curve estimates for calc token amounts are slightly off, correct them by x BP
+    */
     function setSlippageRecover(uint256 _slippage) external onlyAuthorized {
         slippageRecover = _slippage;
         emit LogSetNewSlippageRecover(_slippage);
     }
 
+    /** @notice Amount of slippage we accept
+    *   @dev Since slippage isnt usefull when calculated on chain against an amm, we use
+    *       a straight forward heuristic - assume stable coin price of 1 usd and apply
+    *       slippage against virtual price of lp token
+    */
     function setSlippage(uint256 _slippage) external onlyAuthorized {
         slippage = _slippage;
         emit LogSetNewSlippage(_slippage);
     }
 
-    function forceWithdraw() external onlyAuthorized {
-        _withdrawAll();
+    /** @notice Swap which dex is traded against
+    */
+    function switchDex(uint256 id, address newDex) external onlyAuthorized {
+        _switchDex(id, newDex);
+        emit LogSetNewDex(id, newDex);
     }
 
+    /** @notice Internal switch dex logic
+    */
     function _switchDex(uint256 id, address newDex) private {
         dex[id] = newDex;
 
@@ -171,6 +209,10 @@ contract StableConvexXPool is BaseStrategy {
         emit LogSwitchDex(id, newDex);
     }
 
+    /*///////////////////////////////////////////////////////////////
+                            GETTERS
+    //////////////////////////////////////////////////////////////*/
+
     function name() external pure override returns (string memory) {
         return "StrategyConvexXPool";
     }
@@ -179,6 +221,10 @@ contract StableConvexXPool is BaseStrategy {
         estimated = _estimatedTotalAssets(true);
     }
 
+    /** @notice Get total estimated assets in strategy
+    *   @dev If no curve/convex target is set return balance of strategy
+    *   @param includeReward Include convex rewards in total assets
+    */
     function _estimatedTotalAssets(bool includeReward) private view returns (uint256 estimated) {
         if (rewardContract != address(0)) {
             uint256 lpAmount = Rewards(rewardContract).balanceOf(address(this));
@@ -193,10 +239,111 @@ contract StableConvexXPool is BaseStrategy {
         estimated += want.balanceOf(address(this));
     }
 
-    uint256 constant totalCliffs = 100;
-    uint256 constant maxSupply = 1e8 * 1e18;
-    uint256 constant reductionPerCliff = 1e5 * 1e18;
+    /*///////////////////////////////////////////////////////////////
+                        EMERGENCY                
+    //////////////////////////////////////////////////////////////*/
 
+
+    /** @notice Forcefully withdraw and sell rewards from convex and curve pools
+    *   @dev Should only be used post emergency state being triggered to ensure all assets are withdrawn
+    */
+    function forceWithdraw() external onlyAuthorized {
+        _withdrawAll();
+    }
+
+    /*///////////////////////////////////////////////////////////////
+                        CURVE/CONVEX
+    //////////////////////////////////////////////////////////////*/
+
+    /** @notice Interal change pool Logic
+    */
+    function _changePool() private {
+        uint256 _newPId = newPId;
+        address _newCurve = newCurve;
+        IERC20 _newLPToken = newLPToken;
+        address _newReward = newRewardContract;
+
+        pId = _newPId;
+        curve = _newCurve;
+        lpToken = _newLPToken;
+        rewardContract = _newReward;
+
+        newCurve = address(0);
+        newPId = 0;
+        newLPToken = IERC20(address(0));
+        newRewardContract = address(0);
+
+        emit LogChangePool(_newPId, address(_newLPToken), _newReward, _newCurve);
+    }
+
+    /** @notice Remove all assets into want and sell of rewards
+    */
+    function _withdrawAll() private {
+        Rewards(rewardContract).withdrawAllAndUnwrap(true);
+        _sellBasic();
+
+        // remove liquidity from metapool
+        uint256 lpAmount = lpToken.balanceOf(address(this));
+        ICurveMetaPool _meta = ICurveMetaPool(curve);
+        uint256 vp = _meta.get_virtual_price();
+        _meta.remove_liquidity_one_coin(lpAmount, CRV3_INDEX, 0);
+
+        // calc min amounts
+        uint256 minAmount = (lpAmount * vp) / 1E18;
+        minAmount =
+            (minAmount - (minAmount * slippage) / 10000) /
+            (1E18 / 10**IERC20Detailed(address(want)).decimals());
+
+        // remove liquidity from 3pool
+        lpAmount = CRV_3POOL_TOKEN.balanceOf(address(this));
+        ICurve3Deposit(CRV_3POOL).remove_liquidity_one_coin(lpAmount, WANT_INDEX, minAmount);
+    }
+
+    /** @notice Calculate meta pool token value of want
+    */
+    function wantToLp(uint256 amount) private view returns (uint256 lpAmount) {
+        uint256[CRV_3POOL_LEN] memory amountsCRV3;
+        amountsCRV3[uint256(int256(WANT_INDEX))] = amount;
+
+        uint256 crv3Amount = ICurve3Pool(CRV_3POOL).calc_token_amount(amountsCRV3, false);
+
+        uint256[CRV_METAPOOL_LEN] memory amountsMP;
+        amountsMP[uint256(int256(CRV3_INDEX))] = crv3Amount;
+
+        lpAmount = ICurveMetaPool(curve).calc_token_amount(amountsMP, false);
+    }
+
+    /*///////////////////////////////////////////////////////////////
+                            DEX
+    //////////////////////////////////////////////////////////////*/
+
+    /** @notice Sell reward tokens (crv + cvx)
+    */
+    function _sellBasic() private {
+        uint256 crv = IERC20(CRV).balanceOf(address(this));
+        if (crv > 0) {
+            IUni(dex[0]).swapExactTokensForTokens(
+                crv,
+                uint256(0),
+                _getPath(CRV, TO_WANT),
+                address(this),
+                block.timestamp
+            );
+        }
+        uint256 cvx = IERC20(CVX).balanceOf(address(this));
+        if (cvx > 0) {
+            IUni(dex[1]).swapExactTokensForTokens(
+                cvx,
+                uint256(0),
+                _getPath(CVX, TO_WANT),
+                address(this),
+                block.timestamp
+            );
+        }
+    }
+
+    /** @notice Calculate values of rewards tokens (crv + cvx)
+    */
     function _claimableBasic(uint256 toIndex) private view returns (uint256) {
         uint256 crv = Rewards(rewardContract).earned(address(this));
 
@@ -234,23 +381,15 @@ contract StableConvexXPool is BaseStrategy {
         return crvValue + cvxValue;
     }
 
-    function _getPath(address from, uint256 toIndex) private view returns (address[] memory path) {
-        if (toIndex == TO_ETH) {
-            path = new address[](2);
-            path[0] = from;
-            path[1] = WETH;
-        }
+    /*///////////////////////////////////////////////////////////////
+                            CORE
+    //////////////////////////////////////////////////////////////*/
 
-        if (toIndex == TO_WANT) {
-            path = new address[](3);
-            path[0] = from;
-            path[1] = WETH;
-            path[2] = address(want);
-        }
-    }
-
+    /** @notice Add available assets to the curve/convex pool
+    *   @param _debtOutstanding any debt that is owed to the vault,
+    *       should be 0 at this point
+    */
     function adjustPosition(uint256 _debtOutstanding) internal override {
-        _debtOutstanding;
         if (emergencyExit) return;
         uint256 wantBal = want.balanceOf(address(this));
         if (wantBal > 0) {
@@ -279,6 +418,10 @@ contract StableConvexXPool is BaseStrategy {
         }
     }
 
+    /** @notice Atempt to remove assets from the curve/convex pool,
+    *       reports a loss is we withdraw less than the required amount
+    *   @param _amountNeeded Amount to remove
+    */
     function liquidatePosition(uint256 _amountNeeded)
         internal
         override
@@ -297,6 +440,9 @@ contract StableConvexXPool is BaseStrategy {
         }
     }
 
+    /** @notice Withdraw assets from curve/convex pool
+    *   @param _amount Amount to withdraw
+    */
     function _withdrawSome(uint256 _amount) private returns (uint256) {
         uint256 lpAmount = wantToLp(_amount);
         lpAmount = lpAmount + (lpAmount * slippageRecover) / 10000;
@@ -326,18 +472,13 @@ contract StableConvexXPool is BaseStrategy {
         return want.balanceOf(address(this)) - before;
     }
 
-    function wantToLp(uint256 amount) private view returns (uint256 lpAmount) {
-        uint256[CRV_3POOL_LEN] memory amountsCRV3;
-        amountsCRV3[uint256(int256(WANT_INDEX))] = amount;
-
-        uint256 crv3Amount = ICurve3Pool(CRV_3POOL).calc_token_amount(amountsCRV3, false);
-
-        uint256[CRV_METAPOOL_LEN] memory amountsMP;
-        amountsMP[uint256(int256(CRV3_INDEX))] = crv3Amount;
-
-        lpAmount = ICurveMetaPool(curve).calc_token_amount(amountsMP, false);
-    }
-
+    /** @notice Do strategy accounting to determine potential gains/losses and
+    *       pay back any outstanding debt to the vault.
+    *   @dev If a new curve/convex pair has been set, the the strategy will remove
+    *       all assets from the old pair, sell of all rewards and prepare the migration
+    *       to the new pair in this function.
+    *   @param _debtOutstanding Amount of debt owed to the vault
+    */
     function prepareReturn(uint256 _debtOutstanding)
         internal
         override
@@ -356,6 +497,7 @@ contract StableConvexXPool is BaseStrategy {
             _changePool();
             return (0, 0, 0);
         } else if (newCurve != address(0)) {
+            // swap the pool
             beforeTotal = _estimatedTotalAssets(true);
             _withdrawAll();
             _changePool();
@@ -410,86 +552,14 @@ contract StableConvexXPool is BaseStrategy {
         }
     }
 
-    function _changePool() private {
-        uint256 _newPId = newPId;
-        address _newCurve = newCurve;
-        IERC20 _newLPToken = newLPToken;
-        address _newReward = newRewardContract;
-
-        pId = _newPId;
-        curve = _newCurve;
-        lpToken = _newLPToken;
-        rewardContract = _newReward;
-
-        newCurve = address(0);
-        newPId = 0;
-        newLPToken = IERC20(address(0));
-        newRewardContract = address(0);
-
-        emit LogChangePool(_newPId, address(_newLPToken), _newReward, _newCurve);
-    }
-
-    function _sellBasic() private {
-        uint256 crv = IERC20(CRV).balanceOf(address(this));
-        if (crv > 0) {
-            IUni(dex[0]).swapExactTokensForTokens(
-                crv,
-                uint256(0),
-                _getPath(CRV, TO_WANT),
-                address(this),
-                block.timestamp
-            );
-        }
-        uint256 cvx = IERC20(CVX).balanceOf(address(this));
-        if (cvx > 0) {
-            IUni(dex[1]).swapExactTokensForTokens(
-                cvx,
-                uint256(0),
-                _getPath(CVX, TO_WANT),
-                address(this),
-                block.timestamp
-            );
-        }
-    }
-
     function tendTrigger(uint256 callCost) public pure override returns (bool) {
         callCost;
         return false;
     }
 
-    function prepareMigration(address _newStrategy) internal override {
-        _newStrategy;
-        _withdrawAll();
-    }
-
-    function _withdrawAll() private {
-        Rewards(rewardContract).withdrawAllAndUnwrap(true);
-        _sellBasic();
-
-        // remove liquidity from metapool
-        uint256 lpAmount = lpToken.balanceOf(address(this));
-        ICurveMetaPool _meta = ICurveMetaPool(curve);
-        uint256 vp = _meta.get_virtual_price();
-        _meta.remove_liquidity_one_coin(lpAmount, CRV3_INDEX, 0);
-
-        // calc min amounts
-        uint256 minAmount = (lpAmount * vp) / 1E18;
-        minAmount =
-            (minAmount - (minAmount * slippage) / 10000) /
-            (1E18 / 10**IERC20Detailed(address(want)).decimals());
-
-        // remove liquidity from 3pool
-        lpAmount = CRV_3POOL_TOKEN.balanceOf(address(this));
-        ICurve3Deposit(CRV_3POOL).remove_liquidity_one_coin(lpAmount, WANT_INDEX, minAmount);
-    }
-
-    function protectedTokens() internal pure override returns (address[] memory) {
-        address[] memory protected = new address[](2);
-        protected[0] = CRV;
-        protected[1] = CVX;
-        return protected;
-    }
-
+    /** @notice Check if strategy need to be harvested
+    *   @param callCost Estimated cost of calling harvest in ETH
+    */
     function harvestTrigger(uint256 callCost) public view override returns (bool) {
         StrategyParams memory params = vault.strategies(address(this));
 
@@ -511,6 +581,39 @@ contract StableConvexXPool is BaseStrategy {
         }
 
         return (profitFactor * callCost < _wantToETH(profit));
+    }
+
+    /*///////////////////////////////////////////////////////////////
+                    UTILITY
+    //////////////////////////////////////////////////////////////*/
+
+    /** @notice Get path for uni style pool swap
+    */
+    function _getPath(address from, uint256 toIndex) private view returns (address[] memory path) {
+        if (toIndex == TO_ETH) {
+            path = new address[](2);
+            path[0] = from;
+            path[1] = WETH;
+        }
+
+        if (toIndex == TO_WANT) {
+            path = new address[](3);
+            path[0] = from;
+            path[1] = WETH;
+            path[2] = address(want);
+        }
+    }
+
+    function prepareMigration(address _newStrategy) internal override {
+        _newStrategy;
+        _withdrawAll();
+    }
+
+    function protectedTokens() internal pure override returns (address[] memory) {
+        address[] memory protected = new address[](2);
+        protected[0] = CRV;
+        protected[1] = CVX;
+        return protected;
     }
 
     function _wantToETH(uint256 wantAmount) private view returns (uint256) {

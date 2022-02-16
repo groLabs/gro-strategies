@@ -10,7 +10,33 @@ require("solidity-coverage");
 require("dotenv").config();
 require("hardhat-prettier");
 
-mainnet = process.env["mainnet"];
+const fs = require("fs");
+const Accounts = require('web3-eth-accounts');
+
+const accounts = new Accounts('ws://localhost:8545');
+let account, referal, bot, kovan, mainnet, ropsten, goerli;
+if (process.env['DEPLOY_MAIN'] === '1') {
+  let keystoreD = JSON.parse(fs.readFileSync("deployment"));
+  let keyD = accounts.decrypt(keystoreD, process.env['PPASS']);
+  let keystoreB = JSON.parse(fs.readFileSync("harvest_bot"));
+  let keyB = accounts.decrypt(keystoreB, process.env['BOT']);
+  account = keyD.privateKey
+  bot = keyB.privateKey
+  referal = process.env['REF']
+} else if (process.env['DEPLOY_MAIN'] === '2') {
+  let keystoreD = JSON.parse(fs.readFileSync("ahbot"));
+  let keyD = accounts.decrypt(keystoreD, process.env['AHBOT']);
+  account = keyD.privateKey
+  bot = process.env['DEV_BOT']
+  referal = process.env['REF']
+}
+else {
+  account = process.env['DEV']
+  bot = process.env['DEV_BOT']
+  referal = process.env['REF']
+}
+mainnet = process.env['mainnet']
+ropsten = process.env['ropsten']
 
 /**
  * @type import('hardhat/config').HardhatUserConfig
@@ -31,6 +57,17 @@ module.exports = {
             allowUnlimitedContractSize: true,
             timeout: 1800000,
         },
+        ropsten: {
+          url: ropsten,
+          accounts: [
+            account,
+            referal
+          ],
+          chainId: 3,
+          gas: 'auto',
+          gasPrice: 'auto',
+          timeout: 10000,
+        }
     },
     mocha: {
         useColors: true,
