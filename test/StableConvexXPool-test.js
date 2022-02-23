@@ -98,7 +98,7 @@ contract("convex xpool tests", function (accounts) {
             console.log(`daiVault token ${await daiVault.token()} dai ${dai.address}`)
             daiStrategy = await ConvexXPool.new(daiVault.address, 0);
             await daiStrategy.setKeeper(daiVault.address);
-            await daiStrategy.setSlippage(50);
+            await daiStrategy.setSlippage(100);
             // await daiVault.setController(mockController.address);
 
             await daiVault.addStrategy(daiStrategy.address, 10000, botLimit, topLimit);
@@ -282,7 +282,7 @@ contract("convex xpool tests", function (accounts) {
             await usdcVault.setDepositLimit(toBN(2).pow(toBN(256)).sub(toBN(1)));
             usdcStrategy = await ConvexXPool.new(usdcVault.address, 1);
             await usdcStrategy.setKeeper(usdcVault.address);
-            await usdcStrategy.setSlippage(50);
+            await usdcStrategy.setSlippage(100);
 
             // await usdcVault.setController(mockController.address);
             await usdcVault.addStrategy(usdcStrategy.address, 10000, botLimit, topLimit);
@@ -457,7 +457,7 @@ contract("convex xpool tests", function (accounts) {
             await usdtVault.setDepositLimit(toBN(2).pow(toBN(256)).sub(toBN(1)));
             usdtStrategy = await ConvexXPool.new(usdtVault.address, 2);
             await usdtStrategy.setKeeper(usdtVault.address);
-            await usdtStrategy.setSlippage(50);
+            await usdtStrategy.setSlippage(100);
 
             // await usdtVault.setController(mockController.address);
             await usdtVault.addStrategy(usdtStrategy.address, 10000, botLimit, topLimit);
