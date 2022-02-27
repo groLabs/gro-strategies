@@ -47,6 +47,7 @@ module.exports = {
             url: "http://localhost:8545",
             gas: 12000000,
             blockGasLimit: 12000000,
+            initialBaseFeePerGas: 0,
         },
         hardhat: {
             forking: {
@@ -55,6 +56,7 @@ module.exports = {
             gas: 12000000,
             blockGasLimit: 0x1fffffffffffff,
             allowUnlimitedContractSize: true,
+            initialBaseFeePerGas: 0,
             timeout: 1800000,
         },
         ropsten: {

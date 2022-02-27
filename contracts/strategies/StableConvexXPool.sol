@@ -103,7 +103,7 @@ contract StableConvexXPool is BaseStrategy {
     address public newRewardContract;
 
     address[] public dex;
-    uint256 constant totalCliffs = 100;
+    uint256 constant totalCliffs = 1000;
     uint256 constant maxSupply = 1e8 * 1e18;
     uint256 constant reductionPerCliff = 1e5 * 1e18;
 
