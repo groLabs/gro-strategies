@@ -14,7 +14,7 @@ const abiDecoder = require('abi-decoder');
 const sushiSpell =  '0xdbc2aa11aa01baa22892de745c661db9f204b2cd'
 const router = '0x60aE616a2155Ee3d9A68541Ba4544862310933d4'
 const pool = '0x87Dee1cC9FFd464B79e058ba20387c1984aed86a'
-const AHGov = '0xc05195e2EE3e4Bb49fA989EAA39B88A5001d52BD'
+const AHGov = '0x708fea9af864f6208bb8785aa82583916387ea35'
 const poolID = 37; // Master chef pool id
 
 const proxyHomora = '0x376d16C7dE138B01455a51dA79AD65806E9cd694'
@@ -135,7 +135,7 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
     // add strategy to whitelist in homorabank and gov to whitelist in adapter so they can call harvest
     await web3.eth.sendTransaction({to: AHGov, from: accounts[0], value: toWei('10', 'ether')})
     await homoraBank.methods.setWhitelistUsers([primaryStrategy.address], [true]).send({from: AHGov})
-    await homoraBank.methods.setCreditLimits([[primaryStrategy.address, avax.address, toBN(1E18).mul(toBN(1E18)).toString()]]).send({from: AHGov})
+    await homoraBank.methods.setCreditLimits([[primaryStrategy.address, avax.address, toBN(1E18).mul(toBN(1E18)).toString(), admin]]).send({from: AHGov})
     await daiAdaptor.addToWhitelist(governance, {from: governance});
     await primaryStrategy.setMinWant(toBN(100).mul(toBN(1E18)), {from: governance});
 
@@ -341,6 +341,7 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
 
 
     it('Should take on more debt and hold more colateral when adding to the positions', async () => {
+        const sid = await snapshotChain();
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
@@ -356,9 +357,11 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         // the debt and collateral should both have increased
         assert.isAbove(Number(alphaDebtAdd['debts'][0]), Number(alphaDebt['debts'][0]));
         assert.isAbove(Number(alphaDataAdd['collateralSize']), Number(alphaData['collateralSize']));
+        return revertChain(sid);
     })
 
     it('Should limit the amount the position is adjusted by depending on the borrow limit', async () => {
+        const sid = await snapshotChain();
         const position = await primaryStrategy.activePosition();
         // set a borrow limit of 1M
         const borrowLimit = toBN(1E5).mul(toBN(1E18))
@@ -372,7 +375,8 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
 
         // the estimated assets should be > 1M (1M + 10k) but the position size <= 1M
         await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.gt(borrowLimit);
-        return expect(primaryStrategy.calcEstimatedWant()).to.eventually.be.a.bignumber.lte(borrowLimit);
+        await expect(primaryStrategy.calcEstimatedWant()).to.eventually.be.a.bignumber.lte(borrowLimit);
+        return revertChain(sid);
     })
 
     // we should take on more debt if the position is unhealthy
@@ -431,6 +435,7 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
     })
 
     it('Should be posible to remove assets from a position', async () => {
+        const sid = await snapshotChain();
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
@@ -448,11 +453,13 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         await expect(dai.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(initUserdai);
         // position debt and collateral has decreased
         assert.isBelow(Number(alphaDebtRemove['debts'][0]), Number(alphaDebt['debts'][0]));
-        return assert.isBelow(Number(alphaDataRemove['collateralSize']), Number(alphaData['collateralSize']));
+        await assert.isBelow(Number(alphaDataRemove['collateralSize']), Number(alphaData['collateralSize']));
+        return revertChain(sid);
     })
 
     // if vault debts to the strategy increases, the strategy should try to unwind the position to pay these back
     it('Should be posible to pay back debt to the vault', async () => {
+        const sid = await snapshotChain();
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
@@ -476,10 +483,12 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         // position debt and collateral has decreased
         assert.isBelow(Number(alphaDebtRemove['debts'][0]), Number(alphaDebt['debts'][0]));
         assert.isBelow(Number(alphaDataRemove['collateralSize']), Number(alphaData['collateralSize']));
-        return expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(toBN(0));
+        await expect(primaryStrategy.expectedReturn()).to.eventually.be.a.bignumber.equal(toBN(0));
+        return revertChain(sid);
     })
 
     it('Should adjust the position when withdrawing up to 80% of position', async () => {
+        const sid = await snapshotChain();
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
@@ -496,10 +505,12 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         await expect(dai.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(initUserdai);
         // position debt and collateral has decreased
         assert.isBelow(Number(alphaDebtRemove['debts'][0]), Number(alphaDebt['debts'][0]));
-        return assert.isBelow(Number(alphaDataRemove['collateralSize']), Number(alphaData['collateralSize']));
+        await assert.isBelow(Number(alphaDataRemove['collateralSize']), Number(alphaData['collateralSize']));
+        return revertChain(sid);
     })
 
     it('Should close position if withdrawing more than 80% of position', async () => {
+        const sid = await snapshotChain();
         const position = await primaryStrategy.activePosition();
         const alphaData = await homoraBank.methods.getPositionInfo(position).call()
         const alphaDebt = await homoraBank.methods.getPositionDebts(position).call()
@@ -518,7 +529,8 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         await expect(dai.balanceOf(investor1)).to.eventually.be.a.bignumber.gt(initUserdai);
         // position has no debt or collateral
         await expect(homoraBank.methods.getPositionDebts(position).call()).to.eventually.have.property("debts").that.eql([]);
-        return expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
+        await expect(homoraBank.methods.getPositionInfo(position).call()).to.eventually.have.property("collateralSize").that.eql("0");
+        return revertChain(sid);
     })
 
     it.skip('Should close the position if collateral ratio is above threshold when withdrawing', async () => {
@@ -689,7 +701,9 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
 
         await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.false;
         trigger = await primaryStrategy.harvestTrigger(0, {from: governance});
-        return revertChain(sid);
+        userWant = await dai.balanceOf(investor1);
+        return swap(userWant, [tokens.dai.address, tokens.avax.address])
+        // return revertChain(sid);
     })
 
     it('Should report gains/losses only after selling all tokens', async () => {
@@ -717,39 +731,16 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         const swap_amount = await dai.balanceOf(investor1);
 
         strat_data = await daiAdaptor.strategies(primaryStrategy.address);
-        console.log('----------------------------------1')
-        console.log('active pos ' + await primaryStrategy.activePosition());
-        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
-        console.log('strat gain ' + strat_data.totalGain)
-        console.log('strat loss ' + strat_data.totalLoss)
-        console.log('strat debt ' + strat_data.totalDebt)
         await daiAdaptor.strategyHarvest(0, {from: governance});
         await web3.eth.sendTransaction({to: primaryStrategy.address, from: accounts[0], value: toWei('10', 'ether')})
 
         await expect(swap(swap_amount, [tokens.dai.address, tokens.avax.address])).to.eventually.be.fulfilled;
-        console.log('----------------------------------2')
         strat_data = await daiAdaptor.strategies(primaryStrategy.address);
-        console.log('active pos ' + await primaryStrategy.activePosition());
-        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
-        console.log('strat gain ' + strat_data.totalGain)
-        console.log('strat loss ' + strat_data.totalLoss)
-        console.log('strat debt ' + strat_data.totalDebt)
         await daiAdaptor.strategyHarvest(0, {from: governance});
-        console.log('----------------------------------3')
         strat_data = await daiAdaptor.strategies(primaryStrategy.address);
-        console.log('active pos ' + await primaryStrategy.activePosition());
-        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
-        console.log('strat gain ' + strat_data.totalGain)
-        console.log('strat loss ' + strat_data.totalLoss)
-        console.log('strat debt ' + strat_data.totalDebt)
         await daiAdaptor.strategyHarvest(0, {from: governance});
-        console.log('----------------------------------4')
         strat_data = await daiAdaptor.strategies(primaryStrategy.address);
-        console.log('active pos ' + await primaryStrategy.activePosition());
-        console.log('active pos avax ' + await web3.eth.getBalance(primaryStrategy.address));
-        console.log('strat gain ' + strat_data.totalGain)
-        console.log('strat loss ' + strat_data.totalLoss)
-        console.log('strat debt ' + strat_data.totalDebt)
+        return revertChain(sid);
     })
 
     it('Should not open up a new position when holding more than 1 AVAX', async () => {
@@ -897,17 +888,21 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         lastExposure = await primaryStrategy.getExposure();
 
         // over exposed and short
-        // assert.equal(lastExposure[0], true);
-        // assert.equal(lastExposure[1], true);
-        // await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(_assets);
-        // _assets = await primaryStrategy.estimatedTotalAssets();
-        // await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.lt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
+        assert.equal(lastExposure[0], true);
+        assert.equal(lastExposure[1], true);
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.lt(_assets);
+        _assets = await primaryStrategy.estimatedTotalAssets();
+        await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.lt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
 
-        // await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.true;
 
-        // await daiAdaptor.strategyHarvest(0, {from: governance});
+        await daiAdaptor.strategyHarvest(0, {from: governance});
+        lastExposure = await primaryStrategy.getExposure();
 
-        // lastExposure = await primaryStrategy.getExposure();
+        await daiAdaptor.strategyHarvest(0, {from: governance});
+        await daiAdaptor.strategyHarvest(0, {from: governance});
+
+        lastExposure = await primaryStrategy.getExposure();
 
         // over exposed and short
         assert.equal(lastExposure[0], false);
@@ -916,7 +911,10 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         _assets = await primaryStrategy.estimatedTotalAssets();
         await expect(primaryStrategy.exposureThreshold()).to.eventually.be.a.bignumber.gt(toBN(lastExposure[3]).mul(toBN(1E4)).div(toBN(lastExposure[4][0].toString())).mul(toBN(-1)));
 
-        return expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.false;
+        userWant = await avax.balanceOf(investor1);
+        await expect(primaryStrategy.harvestTrigger(0)).to.eventually.be.false;
+        await swap(userWant, [tokens.avax.address, tokens.dai.address])
+        return revertChain(sid);
     })
   })
 
@@ -939,7 +937,8 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
           await network.provider.send("evm_mine");
         }
         await masterChef.methods.updatePool(poolID).send({from: governance});
-        return expect(primaryStrategy.pendingYieldToken(position)).to.eventually.be.a.bignumber.gt(initSushi);
+        await expect(primaryStrategy.pendingYieldToken(position)).to.eventually.be.a.bignumber.gt(initSushi);
+        return revertChain(sid);
     })
 
     // Sell assets
@@ -1008,7 +1007,8 @@ contract('Alpha homora test dai/avax joe pool', function (accounts) {
         await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(expected, toBN(1));
         const expectedNoSushi = await primaryStrategy.estimatedTotalAssets();
         await masterChef.methods.updatePool(poolID).send({from: governance});
-        return expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(expectedNoSushi, toBN(1));
+        await expect(primaryStrategy.estimatedTotalAssets()).to.eventually.be.a.bignumber.closeTo(expectedNoSushi, toBN(1));
+        return revertChain(sid);
     })
 
     // Simulate changes in expected return

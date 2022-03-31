@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity 0.8.4;
+pragma solidity 0.8.10;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -424,29 +424,6 @@ abstract contract BaseStrategy {
     }
 
     /**
-     * Do anything necessary to prepare this Strategy for migration, such as
-     * transferring any reserve or LP tokens, CDPs, or other tokens or stores of
-     * value.
-     */
-    function _prepareMigration(address _newStrategy) internal virtual;
-
-    /**
-     * @notice
-     *  Transfers all `want` from this Strategy to `_newStrategy`.
-     *
-     *  This may only be called by owner or the Vault.
-     * @dev
-     *  The new Strategy's Vault must be the same as this Strategy's Vault.
-     * @param _newStrategy The Strategy to migrate to.
-     */
-    function migrate(address _newStrategy) external {
-        require(msg.sender == address(vault));
-        require(BaseStrategy(_newStrategy).vault() == vault);
-        _prepareMigration(_newStrategy);
-        want.safeTransfer(_newStrategy, want.balanceOf(address(this)));
-    }
-
-    /**
      * @notice
      *  Activates emergency exit. Once activated, the Strategy will exit its
      *  position upon the next harvest, depositing all funds into the Vault as
@@ -460,60 +437,5 @@ abstract contract BaseStrategy {
         vault.revokeStrategy();
 
         emit LogEmergencyExitEnabled();
-    }
-
-    /**
-     * Override this to add all tokens/tokenized positions this contract
-     * manages on a *persistent* basis (e.g. not just for swapping back to
-     * want ephemerally).
-     *
-     * NOTE: Do *not* include `want`, already included in `sweep` below.
-     *
-     * Example:
-     *
-     *    function _protectedTokens() internal override view returns (address[] memory) {
-     *      address[] memory protected = new address[](3);
-     *      protected[0] = tokenA;
-     *      protected[1] = tokenB;
-     *      protected[2] = tokenC;
-     *      return protected;
-     *    }
-     */
-    function _protectedTokens()
-        internal
-        view
-        virtual
-        returns (address[] memory)
-    {}
-
-    /**
-     * @notice
-     *  Removes tokens from this Strategy that are not the type of tokens
-     *  managed by this Strategy. This may be used in case of accidentally
-     *  sending the wrong kind of token to this Strategy.
-     *
-     *  Tokens will be sent to `_owner()`.
-     *
-     *  This will fail if an attempt is made to sweep `want`, or any tokens
-     *  that are protected by this Strategy.
-     *
-     *  This may only be called by owner.
-     * @dev
-     *  Implement `_protectedTokens()` to specify any additional tokens that
-     *  should be protected from sweeping in addition to `want`.
-     * @param _token The token to transfer out of this vault.
-     */
-    function sweep(address _token) external onlyOwner {
-        require(_token != address(want), "sweep: !want");
-        require(_token != address(vault), "sweep: !shares");
-
-        address[] memory protectedTokens = _protectedTokens();
-        for (uint256 i; i < protectedTokens.length; i++)
-            require(_token != protectedTokens[i], "sweep: !protected");
-
-        IERC20(_token).safeTransfer(
-            _owner(),
-            IERC20(_token).balanceOf(address(this))
-        );
     }
 }
