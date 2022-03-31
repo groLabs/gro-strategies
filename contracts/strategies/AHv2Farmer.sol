@@ -713,7 +713,6 @@ contract AHv2Farmer is BaseStrategy {
     ) private returns (uint256)
     {
         RepayAmounts memory amt = _formatClose(_minAmounts, _collateral, _repay);
-        uint256 balance = IERC20(yieldToken).balanceOf(address(this));
         return IHomora(homoraBank).execute(
             _positionId,
             spell,
@@ -1417,7 +1416,7 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     // compare if the BP ratio between two value is GT or EQ to a target
-    function compare(uint256 a, uint256 b, uint256 target) private view returns (bool) {
+    function compare(uint256 a, uint256 b, uint256 target) private pure returns (bool) {
         return a * PERCENTAGE_DECIMAL_FACTOR / b >= target;
     }
 
