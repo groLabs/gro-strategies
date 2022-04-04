@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.4;
+pragma solidity 0.8.10;
 pragma experimental ABIEncoderV2;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -188,14 +188,6 @@ contract TestStrategy is BaseStrategy {
         _adjustPosition(debtOutstanding);
 
         emit LogHarvested(profit, loss, debtPayment, debtOutstanding);
-    }
-
-    function _prepareMigration(address _newStrategy) internal override {
-        // Nothing needed here because no additional tokens/tokenized positions for mock
-    }
-
-    function _protectedTokens() internal override pure returns (address[] memory) {
-        return new address[](0); // No additional tokens/tokenized positions for mock
     }
 
     function _estimatedTotalAssets() internal view returns (uint256) {

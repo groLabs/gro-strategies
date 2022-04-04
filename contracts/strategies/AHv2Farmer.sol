@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.4;
+pragma solidity 0.8.10;
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../BaseStrategy.sol";
@@ -73,9 +73,9 @@ interface IHomora {
         returns (address[] memory tokens, uint256[] memory debts);
 }
 
-// AH master chef tracker interface
+// AH master chef wrapper interface
 interface IWMasterChef {
-    function balanceOf(address _account, uint256 _id)
+    function accJoePerShare()
         external
         view
         returns (uint256);
@@ -88,14 +88,23 @@ interface IWMasterChef {
 
 // Master chef interface
 interface IMasterChef {
-    function poolInfo(uint256 _pid)
+    function userInfo(uint256 _pid, address _user)
         external
         view
         returns (
-            address lpToken,
-            uint256 allocPoint,
-            uint256 lastRewardBlock,
-            uint256 accSushiPerShare
+            uint256 amount,
+            uint256 rewardDebt,
+            uint256 factor
+        );
+
+    function pendingTokens(uint256 _pid, address _user)
+        external
+        view
+        returns (
+            uint256 pendingJoe,
+            address bonusTokenAddress,
+            string memory bonusTokenSymbol,
+            uint256 pendingBonusToken
         );
 }
 
@@ -161,9 +170,8 @@ contract AHv2Farmer is BaseStrategy {
     address public constant homoraBank =
         address(0x376d16C7dE138B01455a51dA79AD65806E9cd694);
     address public constant masterChef =
-        address(0xd6a4F121CA35509aF06A0Be99093d08462f53052);
-    IWMasterChef public constant wMasterChef =
-        IWMasterChef(0xB41DE9c1f50697cC3Fd63F24EdE2B40f6269CBcb);
+        address(0x4483f0b6e2F5486D06958C20f8C39A7aBe87bf8F);
+    IWMasterChef public immutable wMasterChef;
     address public immutable spell;
 
     // strategies current position
@@ -279,6 +287,7 @@ contract AHv2Farmer is BaseStrategy {
         address _router,
         address _pool,
         uint256 _poolId,
+        address _wMasterChef,
         address[] memory _tokens,
         address _indirectPath
     ) BaseStrategy(_vault) {
@@ -293,6 +302,7 @@ contract AHv2Farmer is BaseStrategy {
         // approve the router to use our yieldToken
         IERC20(yieldToken).safeApprove(_router, type(uint256).max);
         spell = _spell;
+        wMasterChef = IWMasterChef(_wMasterChef);
         uniSwapRouter = IUni(_router);
         pool = IUniPool(_pool);
         poolId = _poolId;
@@ -400,19 +410,20 @@ contract AHv2Farmer is BaseStrategy {
     {
         if (_positionId == 0) return 0;
         // get balance of collateral
-        uint256 amount = positions[_positionId].collateral;
-        (uint256 pid, uint256 stYieldTokenPerShare) = wMasterChef.decodeId(
+        uint256 collateral = positions[_positionId].collateral;
+
+        uint256 accJoePerShare = wMasterChef.accJoePerShare();
+        (, uint256 entryRewardPerShare) = wMasterChef.decodeId(
             positions[_positionId].collId
         );
-        (, , , uint256 enYieldTokenPerShare) = IMasterChef(masterChef).poolInfo(
-            pid
+        (uint256 pendingJoe, , , ) = IMasterChef(masterChef).pendingTokens(
+            poolId, address(wMasterChef)
         );
-        uint256 stYieldToken = (stYieldTokenPerShare * amount - 1) / 1e12;
-        uint256 enYieldToken = (enYieldTokenPerShare * amount) / 1e12;
-        if (enYieldToken > stYieldToken) {
-            return enYieldToken - stYieldToken;
-        }
-        return 0;
+        (uint256 totalShare, , ) = IMasterChef(masterChef).userInfo(
+            poolId, address(wMasterChef)
+        );
+
+        return collateral * (accJoePerShare - entryRewardPerShare + pendingJoe * 1e18 / totalShare) / 1e18; 
     }
 
     /*//////////////////////////
@@ -1405,16 +1416,30 @@ contract AHv2Farmer is BaseStrategy {
     }
 
     // compare if the BP ratio between two value is GT or EQ to a target
-    function compare(uint256 a, uint256 b, uint256 target) private view returns (bool) {
+    function compare(uint256 a, uint256 b, uint256 target) private pure returns (bool) {
         return a * PERCENTAGE_DECIMAL_FACTOR / b >= target;
     }
 
-    /*
-     * @notice prepare this strategy for migrating to a new
-     * @param _newStrategy address of migration target (not used here)
+    /**
+     * @notice
+     *  Removes tokens from this Strategy that are not the type of tokens
+     *  managed by this Strategy. This may be used in case of accidentally
+     *  sending the wrong kind of token to this Strategy.
+     *
+     *  Tokens will be sent to `_owner()`.
+     *
+     *  This will fail if an attempt is made to sweep `want`, or any tokens
+     *  that are protected by this Strategy.
+     *
+     *  This may only be called by owner.
+     * @param _token The token to transfer out of this vault.
      */
-    function _prepareMigration(address _newStrategy) internal override {
-        require(activePosition == 0, "active position");
-        require(address(this).balance == 0, "avax > 0");
+    function sweep(address _token) external onlyOwner {
+        require(_token != address(want) || _token != address(vault) || _token != yieldToken, "sweep: protected token");
+
+        IERC20(_token).safeTransfer(
+            _owner(),
+            IERC20(_token).balanceOf(address(this))
+        );
     }
 }

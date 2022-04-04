@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.4;
+pragma solidity 0.8.10;
 
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "../BaseStrategy.sol";
@@ -1364,12 +1364,27 @@ contract AHv2FarmerDai is BaseStrategy {
         return a * PERCENTAGE_DECIMAL_FACTOR / b >= target;
     }
 
-    /*
-     * @notice prepare this strategy for migrating to a new
-     * @param _newStrategy address of migration target (not used here)
+    /**
+     * @notice
+     *  Removes tokens from this Strategy that are not the type of tokens
+     *  managed by this Strategy. This may be used in case of accidentally
+     *  sending the wrong kind of token to this Strategy.
+     *
+     *  Tokens will be sent to `_owner()`.
+     *
+     *  This will fail if an attempt is made to sweep `want`, or any tokens
+     *  that are protected by this Strategy.
+     *
+     *  This may only be called by owner.
+     * @param _token The token to transfer out of this vault.
      */
-    function _prepareMigration(address _newStrategy) internal override {
-        require(activePosition == 0, "active position");
-        require(address(this).balance == 0, "avax > 0");
+    function sweep(address _token) external onlyOwner {
+        require(_token != address(want), "sweep: !want");
+        require(_token != address(vault), "sweep: !shares");
+
+        IERC20(_token).safeTransfer(
+            _owner(),
+            IERC20(_token).balanceOf(address(this))
+        );
     }
 }
