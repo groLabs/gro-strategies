@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.4;
+pragma solidity 0.8.10;
 
 import "../BaseStrategy.sol";
 import "../interfaces/IERC20Detailed.sol";
@@ -115,7 +115,6 @@ contract StableConvexXPool is BaseStrategy {
                             EVENTS
     //////////////////////////////////////////////////////////////*/
     event LogSetNewPool(uint256 indexed newPId, address newLPToken, address newRewardContract, address newCurve);
-    event LogSwitchDex(uint256 indexed id, address newDex);
     event LogSetNewDex(uint256 indexed id, address newDex);
     event LogChangePool(uint256 indexed newPId, address newLPToken, address newRewardContract, address newCurve);
     event LogSetNewSlippageRecover(uint256 slippage);
@@ -206,7 +205,6 @@ contract StableConvexXPool is BaseStrategy {
         if (token.allowance(address(this), newDex) == 0) {
             token.approve(newDex, type(uint256).max);
         }
-        emit LogSwitchDex(id, newDex);
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -562,6 +560,13 @@ contract StableConvexXPool is BaseStrategy {
     function tendTrigger(uint256 callCost) public pure override returns (bool) {
         callCost;
         return false;
+    }
+
+    /** @notice this strategy does not implement a tend, 
+        adjustPosition is guaranteed to be called from harvest()
+        thus the debtOutsanding would be guaranteed to be zero during adjustPosition
+    */
+    function tend() external override onlyAuthorized {
     }
 
     /** @notice Check if strategy need to be harvested

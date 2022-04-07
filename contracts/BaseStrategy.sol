@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity 0.8.4;
+pragma solidity 0.8.10;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -402,7 +402,7 @@ abstract contract BaseStrategy {
      *  See comments on `adjustPosition()`.
      *
      */
-    function tend() external onlyAuthorized {
+    function tend() external virtual onlyAuthorized {
         // Don't take profits with this call, but adjust for better gains
         adjustPosition(vault.debtOutstanding());
     }
@@ -489,10 +489,10 @@ abstract contract BaseStrategy {
      */
     function harvest() external {
         //require(msg.sender == vault.vaultAdapter(), "harvest: Call from vault");
-        uint256 profit = 0;
-        uint256 loss = 0;
+        uint256 profit;
+        uint256 loss;
+        uint256 debtPayment;
         uint256 debtOutstanding = vault.debtOutstanding();
-        uint256 debtPayment = 0;
         if (emergencyExit) {
             // Free up as much capital as possible
             uint256 totalAssets = estimatedTotalAssets();

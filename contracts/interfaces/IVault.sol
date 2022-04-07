@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.4;
+pragma solidity 0.8.10;
 
 interface IVault {
     function withdraw(uint256 amount) external;

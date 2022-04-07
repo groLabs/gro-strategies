@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.4;
+pragma solidity 0.8.10;
 
 interface ICurve3Pool {
     function coins(uint256 i) external view returns (address);
