@@ -68,6 +68,7 @@ contract StableConvexXPool is BaseStrategy {
 
     address public constant CVX = address(0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B);
     address public constant CRV = address(0xD533a949740bb3306d119CC777fa900bA034cd52);
+    address public constant SPELL = address(0x090185f2135308bad17527004364ebcc2d37e5f6);
     address public constant WETH = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     address public constant DAI = address(0x6B175474E89094C44Da98b954EedeAC495271d0F);
     address public constant USDC = address(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
@@ -279,6 +280,7 @@ contract StableConvexXPool is BaseStrategy {
     function _withdrawAll() private {
         Rewards(rewardContract).withdrawAllAndUnwrap(true);
         _sellBasic();
+        _sellBonus();
 
         // remove liquidity from metapool
         uint256 lpAmount = lpToken.balanceOf(address(this));
@@ -334,6 +336,22 @@ contract StableConvexXPool is BaseStrategy {
                 cvx,
                 uint256(0),
                 _getPath(CVX, TO_WANT),
+                address(this),
+                block.timestamp
+            );
+        }
+    }
+
+    /** @notice Sell additional reward tokens
+    */
+    function _sellBonus() private {
+        uint256 spell = IERC20(SPELL).balanceOf(address(this));
+        if (spell > 0) {
+            // sushiswap has more liquidity for SPELL/ETH
+            IUni(dex[1]).swapExactTokensForTokens(
+                spell, 
+                uint256(0), 
+                _getPath(SPELL, TO_WANT), 
                 address(this),
                 block.timestamp
             );
@@ -517,6 +535,7 @@ contract StableConvexXPool is BaseStrategy {
         } else {
             Rewards(rewardContract).getReward();
             _sellBasic();
+            _sellBonus();
             total = _estimatedTotalAssets(false);
             wantBal = want.balanceOf(address(this));
         }
