@@ -1,11 +1,13 @@
 const VaultAdaptor = artifacts.require("Vault");
 const ConvexXPool = artifacts.require("StableConvexXPool");
 const IERC20 = artifacts.require("@openzeppelin/contracts/token/ERC20/IERC20.sol:IERC20");
+const IERC20Detailed = artifacts.require("contracts/interfaces/IERC20Detailed.sol:IERC20Detailed");
 const MockController = artifacts.require("MockController");
 const MockInsurance = artifacts.require("MockInsurance");
 const MockPnL = artifacts.require("MockPnL");
 const Booster = artifacts.require("contracts/strategies/StableConvexXPool.sol:Booster");
 const IRewards = artifacts.require("IRewards");
+const IVRewards = artifacts.require("IVRewards");
 
 const {toBN, toHex} = require("web3-utils");
 const {tokens, setBalance} = require("./utils/common-utils");
@@ -39,7 +41,7 @@ contract("convex xpool tests", function (accounts) {
     const topLimit = toBN(2).pow(toBN(256)).sub(toBN(1));
 
     let dai, daiVault, daiStrategy, usdc, usdcVault, usdcStrategy, usdt, usdtVault, usdtStrategy,
-        mockController, mockInsurance, mockPnL, rewards, crv;
+        mockController, mockInsurance, mockPnL, rewards, vRewardsLength, vRewards, crv;
 
     let sId;
 
@@ -465,6 +467,16 @@ contract("convex xpool tests", function (accounts) {
             await usdt.approve(usdtVault.address, 0, {from: investor1});
             await usdt.approve(usdtVault.address, toBN(2).pow(toBN(256)).sub(toBN(1)), {from: investor1});
             rewards = await IRewards.at(CONVEX_FRAX_REWARD);
+
+            // testing harvest additional reward token wtih FRAX pool - FXS
+            vRewardsLength = await rewards.extraRewardsLength();
+            vRewards = [];
+            for(let i=0; i<vRewardsLength;i++) {
+                vRewardsAddress = await rewards.extraRewards(i);
+                vReward = await IVRewards.at(vRewardsAddress);
+                vRewards.push(vReward);
+            }
+            
         })
 
         it("deposit", async () => {
@@ -485,6 +497,11 @@ contract("convex xpool tests", function (accounts) {
 
             let rewardRate = await rewards.rewardRate();
             console.log('rewards.rewardRate: ' + rewardRate);
+
+            for (let vReward of vRewards) {
+                let vRewardRate = await vReward.rewardRate();
+                console.log('vRewards.rewardRate: ' + vRewardRate);
+            }
 
             let multiple = toBN(50);
             const value = web3.utils.padLeft(toHex(rewardRate.mul(multiple)), 64);
@@ -509,6 +526,21 @@ contract("convex xpool tests", function (accounts) {
             await setBalance("crv", rewards.address, crvAmount.toString(), 1);
             crvAmount = await crv.balanceOf(rewards.address);
             console.log('rewards.CRV: ' + crvAmount);
+
+            for (let vReward of vRewards) {
+                let vRewardTokenAddress = await vReward.rewardToken();
+                let vRewardToken = await IERC20.at(vRewardTokenAddress);
+                let vRewardAmount = await vRewardToken.balanceOf(vReward.address);
+                let vRewardTokenDetailed = await IERC20Detailed.at(vRewardTokenAddress);
+                let vRewardSymbol = await vRewardTokenDetailed.symbol();
+                console.log('rewards.' + vRewardSymbol + ' ' + vRewardAmount);
+
+                vRewardAmount = vRewardAmount.mul(multiple).mul(toBN(2)).div(constants.DEFAULT_FACTOR);
+                // assume FXS - use solidity, but for other tokens need to verify 
+                await setBalance(vRewardSymbol, vReward.address, vRewardAmount.toString(), 0);
+                vRewardAmount = await vRewardToken.balanceOf(vReward.address);
+                console.log('rewards.' + vRewardSymbol + ' ' + vRewardAmount);
+            }
 
             console.log('usdtStrategy.harvestTrigger: ' + await usdtStrategy.harvestTrigger(0));
 

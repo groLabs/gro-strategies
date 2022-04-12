@@ -49,6 +49,10 @@ interface Rewards {
     function withdrawAllAndUnwrap(bool claim) external;
 
     function getReward() external returns (bool);
+
+    function extraRewards(uint256 id) external view returns (address);
+
+    function extraRewardsLength() external view returns (uint256);
 }
 
 /** @title StableConvexXPool
@@ -68,7 +72,6 @@ contract StableConvexXPool is BaseStrategy {
 
     address public constant CVX = address(0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B);
     address public constant CRV = address(0xD533a949740bb3306d119CC777fa900bA034cd52);
-    address public constant SPELL = address(0x090185f2135308BaD17527004364eBcC2D37e5F6);
     address public constant WETH = address(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     address public constant DAI = address(0x6B175474E89094C44Da98b954EedeAC495271d0F);
     address public constant USDC = address(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
@@ -90,6 +93,8 @@ contract StableConvexXPool is BaseStrategy {
     uint256 public constant TO_ETH = 0;
     uint256 public constant TO_WANT = 1;
 
+    // number of max rewardedTokens set by Curve
+    uint256 public constant MAX_REWARDS = 8;
     // Want tokens index in 3 pool
     int128 public immutable WANT_INDEX;
 
@@ -104,6 +109,9 @@ contract StableConvexXPool is BaseStrategy {
     address public newRewardContract;
 
     address[] public dex;
+    address[MAX_REWARDS] public rewardedTokens;
+    // separately set for each rewardedToken whether to go to uni/sushi
+    uint256[MAX_REWARDS] public rewardedTokenDexs;
     uint256 constant totalCliffs = 1000;
     uint256 constant maxSupply = 1e8 * 1e18;
     uint256 constant reductionPerCliff = 1e5 * 1e18;
@@ -120,6 +128,8 @@ contract StableConvexXPool is BaseStrategy {
     event LogChangePool(uint256 indexed newPId, address newLPToken, address newRewardContract, address newCurve);
     event LogSetNewSlippageRecover(uint256 slippage);
     event LogSetNewSlippage(uint256 slippage);
+    event LogSetNewRewardedTokens(address[MAX_REWARDS] rewardedTokens);
+    event LogSetNewRewardedTokenDexs(uint256[MAX_REWARDS] rewardedTokenDexs);
 
     constructor(address _vault, int128 wantIndex) BaseStrategy(_vault) {
         profitFactor = 1000;
@@ -208,6 +218,16 @@ contract StableConvexXPool is BaseStrategy {
         }
     }
 
+    function setNewRewardedTokens(address[MAX_REWARDS] calldata _rewardedTokens) external onlyAuthorized {
+        rewardedTokens = _rewardedTokens;
+        emit LogSetNewRewardedTokens(rewardedTokens);
+    }
+
+    function setNewRewardedTokensDex(uint256[MAX_REWARDS] calldata _rewardedTokenDexs) external onlyAuthorized {
+        rewardedTokenDexs = _rewardedTokenDexs;
+        emit LogSetNewRewardedTokenDexs(rewardedTokenDexs);
+    }
+
     /*///////////////////////////////////////////////////////////////
                             GETTERS
     //////////////////////////////////////////////////////////////*/
@@ -233,6 +253,7 @@ contract StableConvexXPool is BaseStrategy {
             }
             if (includeReward) {
                 estimated += _claimableBasic(TO_WANT);
+                estimated += _claimableRewardedTokens(TO_WANT);
             }
         }
         estimated += want.balanceOf(address(this));
@@ -280,7 +301,7 @@ contract StableConvexXPool is BaseStrategy {
     function _withdrawAll() private {
         Rewards(rewardContract).withdrawAllAndUnwrap(true);
         _sellBasic();
-        _sellBonus();
+        _sellRewardedTokens();
 
         // remove liquidity from metapool
         uint256 lpAmount = lpToken.balanceOf(address(this));
@@ -344,18 +365,27 @@ contract StableConvexXPool is BaseStrategy {
 
     /** @notice Sell additional reward tokens
     */
-    function _sellBonus() private {
-        uint256 spell = IERC20(SPELL).balanceOf(address(this));
-        if (spell > 0) {
-            // sushiswap has more liquidity for SPELL/ETH
-            IUni(dex[1]).swapExactTokensForTokens(
-                spell, 
-                uint256(0), 
-                _getPath(SPELL, TO_WANT), 
-                address(this),
-                block.timestamp
-            );
-        }
+    function _sellRewardedTokens() private {
+        for (uint256 i; i<MAX_REWARDS; i++) {
+            address rewardedToken = rewardedTokens[i];
+            // rewardedToken addresses are consecutively packed if exists.
+            if (rewardedToken == address(0)) {
+                break;
+            } else {
+                uint256 bonus = IERC20(rewardedToken).balanceOf(address(this));
+                if (bonus > 0) {
+                    // dexId 0 = Uni; dexId 1 = Sushi
+                    uint256 dexId = rewardedTokenDexs[i];
+                    IUni(dex[dexId]).swapExactTokensForTokens(
+                        bonus, 
+                        uint256(0), 
+                        _getPath(rewardedToken, TO_WANT), 
+                        address(this),
+                        block.timestamp
+                    );
+                }
+            }
+        } 
     }
 
     /** @notice Calculate values of rewards tokens (crv + cvx)
@@ -395,6 +425,24 @@ contract StableConvexXPool is BaseStrategy {
         }
 
         return crvValue + cvxValue;
+    }
+
+    function _claimableRewardedTokens(uint256 toIndex) private view returns (uint256) {
+        uint256 rewardLength = Rewards(rewardContract).extraRewardsLength();
+        uint256 totalValue;
+        for(uint256 i; i<rewardLength;i++) {
+            // VirtualBalanceRewardPool
+            address vRewardPool = Rewards(rewardContract).extraRewards(i);
+            uint256 reward = Rewards(vRewardPool).earned(address(this));
+            if (reward > 0) {
+                uint256 dexId = rewardedTokenDexs[i];
+                address rewardedToken = rewardedTokens[i];
+                uint256[] memory rewardSwap = IUni(dex[dexId]).getAmountsOut(reward, _getPath(rewardedToken, toIndex));
+                uint256 value = rewardSwap[rewardSwap.length - 1];
+                totalValue += value;
+            }
+        }
+        return totalValue;
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -535,7 +583,7 @@ contract StableConvexXPool is BaseStrategy {
         } else {
             Rewards(rewardContract).getReward();
             _sellBasic();
-            _sellBonus();
+            _sellRewardedTokens();
             total = _estimatedTotalAssets(false);
             wantBal = want.balanceOf(address(this));
         }

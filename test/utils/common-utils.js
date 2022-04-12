@@ -966,6 +966,7 @@ const tokens = {
         lpt: { address: '0x6c3F90f043a72FA612cbac8115EE7e52BDe6E490', name: "3Crv", symbol: "3CRV", decimals: 18, mappingSlot: '0x3'  },
         lptc: { address: '0x4f3E8F405CF5aFC05D68142F3783bDfE13811522', name: "3CrvUSDN", symbol: "3CRVUSDN", decimals: 18, mappingSlot: '0x3'  },
         crv: { address: '0xD533a949740bb3306d119CC777fa900bA034cd52', name: "CRV", symbol: "CRV", decimals: 18, mappingSlot: '0x3'  },
+        FXS : { address: '0x3432b6a60d23ca0dfca7761b7ab56459d9c964d0', name: "Frax Share", symbol: "FXS", decimals: 18, mappingSlot: '0x0'  },
 };
 
 function getBalanceOfSlotSolidity(mappingSlot, address) {
