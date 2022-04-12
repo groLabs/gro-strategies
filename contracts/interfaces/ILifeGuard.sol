@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.10;
+pragma solidity 0.8.4;
 
 // LP -> Liquidity pool token
 interface ILifeGuard {
