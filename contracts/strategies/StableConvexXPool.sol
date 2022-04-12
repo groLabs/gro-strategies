@@ -430,7 +430,8 @@ contract StableConvexXPool is BaseStrategy {
     function _claimableRewardedTokens(uint256 toIndex) private view returns (uint256) {
         uint256 rewardLength = Rewards(rewardContract).extraRewardsLength();
         uint256 totalValue;
-        for(uint256 i; i<rewardLength;i++) {
+        if (rewardLength > 0) {
+            for(uint256 i; i<rewardLength;i++) {
             // VirtualBalanceRewardPool
             address vRewardPool = Rewards(rewardContract).extraRewards(i);
             uint256 reward = Rewards(vRewardPool).earned(address(this));
@@ -440,6 +441,7 @@ contract StableConvexXPool is BaseStrategy {
                 uint256[] memory rewardSwap = IUni(dex[dexId]).getAmountsOut(reward, _getPath(rewardedToken, toIndex));
                 uint256 value = rewardSwap[rewardSwap.length - 1];
                 totalValue += value;
+                }
             }
         }
         return totalValue;
