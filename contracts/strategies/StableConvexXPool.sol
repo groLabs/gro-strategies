@@ -55,6 +55,13 @@ interface Rewards {
     function extraRewardsLength() external view returns (uint256);
 }
 
+/// Convex virtualRewardsPool interface
+interface vRewards {
+
+    function earned(address account) external view returns (uint256);
+
+}
+
 /** @title StableConvexXPool
 *   @notice Convex strategy based of yearns convex contract that allows usage of one of the 3 pool
 *       stables as want, rather than a metapool lp token. This strategy can swap between meta pool
@@ -434,7 +441,7 @@ contract StableConvexXPool is BaseStrategy {
             for(uint256 i; i<rewardLength;i++) {
             // VirtualBalanceRewardPool
             address vRewardPool = Rewards(rewardContract).extraRewards(i);
-            uint256 reward = Rewards(vRewardPool).earned(address(this));
+            uint256 reward = vRewards(vRewardPool).earned(address(this));
             if (reward > 0) {
                 uint256 dexId = rewardedTokenDexs[i];
                 address rewardedToken = rewardedTokens[i];
