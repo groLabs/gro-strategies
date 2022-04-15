@@ -463,6 +463,24 @@ contract("convex xpool tests", function (accounts) {
 
             // await usdtVault.setController(mockController.address);
             await usdtVault.addStrategy(usdtStrategy.address, 10000, botLimit, topLimit);
+
+
+            let noOfreward = await usdtStrategy.noOfRewards();
+            console.log("before adding rewardToken: ", noOfreward);
+            // await usdtStrategy to add rewardToken
+            await usdtStrategy.addNewRewardedTokens("0x3432b6a60d23ca0dfca7761b7ab56459d9c964d0", 0);
+
+            noOfreward = await usdtStrategy.noOfRewards();
+            console.log("after adding rewardToken: ", noOfreward);
+            
+            let newRewardToken = await usdtStrategy.rewardedTokens(0);
+            console.log("before changing dex from 0 to 1: ", newRewardToken);
+            // await usdtStrategy to change dex
+            await usdtStrategy.setDexForRewardedToken("0x3432b6a60d23ca0dfca7761b7ab56459d9c964d0", 1, 0);
+
+            newRewardToken = await usdtStrategy.rewardedTokens(0);
+            console.log("after changing dex from 0 to 1: ", newRewardToken);
+
             await usdtStrategy.setNewPool(FRAX_PID, FRAX_POOL);
             await usdt.approve(usdtVault.address, 0, {from: investor1});
             await usdt.approve(usdtVault.address, toBN(2).pow(toBN(256)).sub(toBN(1)), {from: investor1});

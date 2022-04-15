@@ -116,9 +116,10 @@ contract StableConvexXPool is BaseStrategy {
     address public newRewardContract;
 
     address[] public dex;
-    address[MAX_REWARDS] public rewardedTokens;
-    // separately set for each rewardedToken whether to go to uni/sushi
-    uint256[MAX_REWARDS] public rewardedTokenDexs;
+
+    mapping(uint256 => RewardToken) public rewardedTokens;
+    uint256 public noOfRewards;
+    
     uint256 constant totalCliffs = 1000;
     uint256 constant maxSupply = 1e8 * 1e18;
     uint256 constant reductionPerCliff = 1e5 * 1e18;
@@ -128,6 +129,13 @@ contract StableConvexXPool is BaseStrategy {
     uint256 public slippage = 10; // how much slippage to we accept
 
     /*///////////////////////////////////////////////////////////////
+                            STRUCTS
+    //////////////////////////////////////////////////////////////*/
+    struct RewardToken {
+        address rewardToken;
+        uint256 dex;
+    }
+    /*///////////////////////////////////////////////////////////////
                             EVENTS
     //////////////////////////////////////////////////////////////*/
     event LogSetNewPool(uint256 indexed newPId, address newLPToken, address newRewardContract, address newCurve);
@@ -135,8 +143,8 @@ contract StableConvexXPool is BaseStrategy {
     event LogChangePool(uint256 indexed newPId, address newLPToken, address newRewardContract, address newCurve);
     event LogSetNewSlippageRecover(uint256 slippage);
     event LogSetNewSlippage(uint256 slippage);
-    event LogSetNewRewardedTokens(address[MAX_REWARDS] rewardedTokens);
-    event LogSetNewRewardedTokenDexs(uint256[MAX_REWARDS] rewardedTokenDexs);
+    event LogAddNewRewardedTokens(address rewardedToken);
+    event LogSetNewRewardedTokenDexs(address rewardedToken, uint256 dex);
 
     constructor(address _vault, int128 wantIndex) BaseStrategy(_vault) {
         profitFactor = 1000;
@@ -225,14 +233,17 @@ contract StableConvexXPool is BaseStrategy {
         }
     }
 
-    function setNewRewardedTokens(address[MAX_REWARDS] calldata _rewardedTokens) external onlyAuthorized {
-        rewardedTokens = _rewardedTokens;
-        emit LogSetNewRewardedTokens(rewardedTokens);
+    function addNewRewardedTokens(address _rewardedToken, uint256 _dex) external onlyAuthorized {
+        require(noOfRewards < MAX_REWARDS, "noOfReward exceeds MAX_REWARDS");
+        rewardedTokens[noOfRewards] = RewardToken(_rewardedToken, _dex);
+        noOfRewards += 1;
+        emit LogAddNewRewardedTokens(_rewardedToken);
     }
-
-    function setNewRewardedTokensDex(uint256[MAX_REWARDS] calldata _rewardedTokenDexs) external onlyAuthorized {
-        rewardedTokenDexs = _rewardedTokenDexs;
-        emit LogSetNewRewardedTokenDexs(rewardedTokenDexs);
+    function setDexForRewardedToken(address _rewardToken, uint256 _dex, uint256 id) external onlyAuthorized {
+        RewardToken storage r = rewardedTokens[id];
+        require(r.rewardToken == _rewardToken, "address of rewardToken mismatch with the id");
+        r.dex = _dex;
+        emit LogSetNewRewardedTokenDexs(_rewardToken, _dex);
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -374,7 +385,7 @@ contract StableConvexXPool is BaseStrategy {
     */
     function _sellRewardedTokens() private {
         for (uint256 i; i<MAX_REWARDS; i++) {
-            address rewardedToken = rewardedTokens[i];
+            address rewardedToken = rewardedTokens[i].rewardToken;
             // rewardedToken addresses are consecutively packed if exists.
             if (rewardedToken == address(0)) {
                 break;
@@ -382,7 +393,7 @@ contract StableConvexXPool is BaseStrategy {
                 uint256 bonus = IERC20(rewardedToken).balanceOf(address(this));
                 if (bonus > 0) {
                     // dexId 0 = Uni; dexId 1 = Sushi
-                    uint256 dexId = rewardedTokenDexs[i];
+                    uint256 dexId = rewardedTokens[i].dex;
                     IUni(dex[dexId]).swapExactTokensForTokens(
                         bonus, 
                         uint256(0), 
@@ -443,8 +454,8 @@ contract StableConvexXPool is BaseStrategy {
             address vRewardPool = Rewards(rewardContract).extraRewards(i);
             uint256 reward = vRewards(vRewardPool).earned(address(this));
             if (reward > 0) {
-                uint256 dexId = rewardedTokenDexs[i];
-                address rewardedToken = rewardedTokens[i];
+                uint256 dexId = rewardedTokens[i].dex;
+                address rewardedToken = rewardedTokens[i].rewardToken;
                 uint256[] memory rewardSwap = IUni(dex[dexId]).getAmountsOut(reward, _getPath(rewardedToken, toIndex));
                 uint256 value = rewardSwap[rewardSwap.length - 1];
                 totalValue += value;
